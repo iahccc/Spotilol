@@ -130,6 +130,39 @@ this project uses Firebase (analytics, crash reporting, performance). to build, 
 2. register an Android app with package name `com.project.lol`
 3. download the `google-services.json` and place it in `app/`
 
+### Automated GitHub Releases
+
+Pushing a `MAJOR.MINOR.PATCH` tag (for example, `1.0.11`) runs the release workflow. It builds a signed release APK, verifies its signature, and creates or updates a GitHub Release with the APK and its SHA-256 checksum.
+
+Configure these repository secrets under **Settings > Secrets and variables > Actions** before publishing the first release:
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-encoded release keystore
+- `ANDROID_KEYSTORE_PASSWORD`: keystore password
+- `ANDROID_KEY_ALIAS`: signing key alias
+- `ANDROID_KEY_PASSWORD`: signing key password
+- `GOOGLE_SERVICES_JSON_BASE64`: Base64-encoded `app/google-services.json`
+
+On Linux, generate the Base64 values without line wrapping:
+
+```bash
+base64 -w 0 path/to/release.jks
+base64 -w 0 app/google-services.json
+```
+
+To publish a release:
+
+1. update `versionName` and increment `versionCode` in `app/build.gradle.kts`
+2. commit and push the version change
+3. create a tag matching `versionName`
+4. push the tag to your fork
+
+```bash
+git tag 1.0.11
+git push iahccc 1.0.11
+```
+
+The workflow rejects tags with a `v` prefix, tags that do not match `versionName`, and non-increasing `versionCode` values. Keep the signing keystore safe and unchanged so future releases can update existing installations.
+
 ---
 
 ## Contributing
