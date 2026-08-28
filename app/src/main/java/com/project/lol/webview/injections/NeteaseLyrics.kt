@@ -15,6 +15,9 @@ object NeteaseLyrics {
 
             var SEARCH_URL='https://music.163.com/api/search/get/web';
             var LYRIC_URL='https://music.163.com/api/song/lyric';
+            var EMPTY_CACHE_MS=120000;
+            var ERROR_RETRY_MS=30000;
+            var MAX_LYRIC_CANDIDATES=5;
             var state={
                 player:null,
                 button:null,
@@ -33,6 +36,7 @@ object NeteaseLyrics {
                 activeIndex:-2,
                 generation:0,
                 cache:Object.create(null),
+                retryAt:0,
                 mountQueued:false
             };
             window.__spotilolNeteaseLyrics=state;
@@ -157,7 +161,7 @@ object NeteaseLyrics {
                 if(state.panelVisible&&(changed||forceFollow||!wasVisible)){
                     requestAnimationFrame(function(){
                         syncEdgePadding();
-                        renderReady(Number(window.position)||0,true);
+                        renderReady(playbackPositionMs(),true);
                     });
                 }
             }
@@ -243,6 +247,45 @@ object NeteaseLyrics {
                 catch(e){return text.replace(/[\s\W_]+/g,'');}
             }
 
+            function normalizeSearchText(value){
+                var text=String(value||'');
+                try{text=text.normalize('NFKC');}catch(e){}
+                text=text.replace(/\s+(?:feat(?:uring)?\.?|ft\.?)\s+.*$/i,' ');
+                text=text.replace(/\s*[-–—:]\s*(?:\d{4}\s*)?(?:remaster(?:ed)?|live|version|edit|mix|acoustic|instrumental|现场|重制|伴奏).*$/i,' ');
+                text=text.replace(/[\(\[（【][^\)\]）】]*(?:feat(?:uring)?\.?|ft\.?|remaster(?:ed)?|live|version|edit|mix|acoustic|instrumental|现场|重制|伴奏)[^\)\]）】]*[\)\]）】]/gi,' ');
+                return text.replace(/\s+/g,' ').trim();
+            }
+
+            function buildSearchQueries(title,artist){
+                var rawTitle=String(title||'').trim();
+                var cleanTitle=normalizeSearchText(rawTitle)||rawTitle;
+                var cleanArtist=String(artist||'').trim();
+                try{cleanArtist=cleanArtist.normalize('NFKC');}catch(e){}
+                var queries=[];
+                function add(query){
+                    query=String(query||'').replace(/\s+/g,' ').trim();
+                    if(query&&queries.indexOf(query)===-1) queries.push(query);
+                }
+                add(cleanTitle+' '+cleanArtist);
+                if(rawTitle!==cleanTitle) add(rawTitle+' '+cleanArtist);
+                add(cleanTitle);
+                if(rawTitle!==cleanTitle) add(rawTitle);
+                return queries;
+            }
+
+            function playbackDurationMs(){
+                var value=Number(window.duration);
+                if(!isFinite(value)||value<=0) return 0;
+                return value<10000?value*1000:value;
+            }
+
+            function playbackPositionMs(){
+                var value=Number(window.position);
+                if(!isFinite(value)||value<0) return 0;
+                var rawDuration=Number(window.duration);
+                return isFinite(rawDuration)&&rawDuration>0&&rawDuration<10000?value*1000:value;
+            }
+
             function similarity(a,b){
                 a=normalizeText(a);
                 b=normalizeText(b);
@@ -299,6 +342,7 @@ object NeteaseLyrics {
                     song:song,
                     title:titleScore,
                     artist:artistScore,
+                    duration:durationScore,
                     total:weight?weighted/weight:0
                 };
             }
@@ -320,14 +364,20 @@ object NeteaseLyrics {
                 });
             }
 
-            function selectBest(songs,title,artist,duration){
+            function rankSongs(songs,title,artist,duration){
                 var ranked=(songs||[]).map(function(song){return scoreSong(song,title,artist,duration);});
                 ranked.sort(function(a,b){return b.total-a.total;});
                 var accepted=ranked.filter(function(candidate){
-                    if(candidate.title<.65||candidate.total<.72) return false;
-                    return candidate.artist===null||candidate.artist>=.5;
+                    if(candidate.title>=.65&&candidate.total>=.72) return true;
+                    var targetTitle=normalizeText(title);
+                    var candidateTitle=normalizeText(candidate.song&&candidate.song.name);
+                    return !!(
+                        targetTitle&&candidateTitle&&targetTitle.length===candidateTitle.length&&
+                        candidate.artist!==null&&candidate.artist>=.9&&
+                        candidate.duration!==null&&candidate.duration>=.9
+                    );
                 });
-                return accepted.length?accepted[0].song:null;
+                return accepted.slice(0,MAX_LYRIC_CANDIDATES).map(function(candidate){return candidate.song;});
             }
 
             function parseLrc(text){
@@ -364,15 +414,53 @@ object NeteaseLyrics {
                 });
             }
 
-            function findSong(title,artist,duration){
-                var combined=(title+' '+artist).trim();
-                return searchSongs(combined).then(function(songs){
-                    var best=selectBest(songs,title,artist,duration);
-                    if(best) return best;
-                    return searchSongs(title).then(function(fallback){
-                        return selectBest(fallback,title,artist,duration);
+            function findSongs(title,artist,duration){
+                var queries=buildSearchQueries(title,artist);
+                var songs=[];
+                var seen=Object.create(null);
+                var successfulSearches=0;
+                var sequence=Promise.resolve();
+                queries.forEach(function(query){
+                    sequence=sequence.then(function(){
+                        return searchSongs(query).then(function(results){
+                            successfulSearches++;
+                            results.forEach(function(song){
+                                var id=song&&(song.id||song.resourceId);
+                                if(!id||seen[id]) return;
+                                seen[id]=true;
+                                songs.push(song);
+                            });
+                        }).catch(function(){});
                     });
                 });
+                return sequence.then(function(){
+                    if(!successfulSearches) throw new Error('All lyric searches failed');
+                    return rankSongs(songs,title,artist,duration);
+                });
+            }
+
+            function fetchFirstLyrics(candidates){
+                var limit=Math.min((candidates||[]).length,MAX_LYRIC_CANDIDATES);
+                var successfulResponses=0;
+                var failedResponses=0;
+                function next(index){
+                    if(index>=limit){
+                        if(!successfulResponses&&failedResponses) throw new Error('All lyric requests failed');
+                        return Promise.resolve([]);
+                    }
+                    var song=candidates[index];
+                    return fetchLyrics(song&&(song.id||song.resourceId)).then(
+                        function(lines){
+                            successfulResponses++;
+                            return lines.length?lines:next(index+1);
+                        },
+                        function(){
+                            failedResponses++;
+                            return next(index+1);
+                        }
+                    );
+                }
+                return next(0);
             }
 
             function clearList(){
@@ -452,43 +540,55 @@ object NeteaseLyrics {
                     if(state.lineElements.length!==state.lines.length||!state.lineElements[0]||!state.lineElements[0].isConnected){
                         renderLyricsList();
                     }
-                    renderReady(Number(window.position)||0,false);
+                    renderReady(playbackPositionMs(),false);
                     return;
                 }
-                var cached=state.trackKey&&state.cache[state.trackKey];
+                var cached=state.trackKey&&getCachedEntry(state.trackKey);
                 showStatus(cached?cached.kind:(state.viewKind||'idle'));
+            }
+
+            function getCachedEntry(key){
+                var entry=state.cache[key];
+                if(entry&&entry.expiresAt&&entry.expiresAt<=Date.now()){
+                    delete state.cache[key];
+                    return null;
+                }
+                return entry||null;
             }
 
             function applyCached(entry){
                 clearManualBrowse();
                 state.lines=entry&&entry.kind==='ready'?entry.lines:[];
+                state.retryAt=entry&&entry.kind==='error'&&entry.expiresAt?entry.expiresAt:0;
                 state.activeIndex=-2;
                 if(state.lines.length){
                     renderLyricsList();
-                    renderReady(Number(window.position)||0,true);
+                    renderReady(playbackPositionMs(),true);
                 }
                 else showStatus(entry?entry.kind:'idle');
             }
 
             function loadTrack(key,title,artist,duration){
-                var cached=state.cache[key];
+                var cached=getCachedEntry(key);
                 if(cached){applyCached(cached);return;}
                 var request=++state.generation;
+                state.retryAt=0;
                 state.lines=[];
                 state.activeIndex=-2;
                 showStatus('loading');
-                findSong(title,artist,duration).then(function(song){
+                findSongs(title,artist,duration).then(function(candidates){
                     if(request!==state.generation||!state.modeActive||key!==state.trackKey) return null;
-                    if(!song) return [];
-                    return fetchLyrics(song.id);
+                    return fetchFirstLyrics(candidates);
                 }).then(function(lines){
                     if(lines===null||request!==state.generation||!state.modeActive||key!==state.trackKey) return;
-                    var entry=lines.length?{kind:'ready',lines:lines}:{kind:'empty',lines:[]};
+                    var entry=lines.length
+                        ?{kind:'ready',lines:lines}
+                        :{kind:'empty',lines:[],expiresAt:Date.now()+EMPTY_CACHE_MS};
                     state.cache[key]=entry;
                     applyCached(entry);
                 }).catch(function(){
                     if(request!==state.generation||!state.modeActive||key!==state.trackKey) return;
-                    var entry={kind:'error',lines:[]};
+                    var entry={kind:'error',lines:[],expiresAt:Date.now()+ERROR_RETRY_MS};
                     state.cache[key]=entry;
                     applyCached(entry);
                 });
@@ -504,6 +604,7 @@ object NeteaseLyrics {
                         state.generation++;
                         state.trackKey='';
                         state.lines=[];
+                        state.retryAt=0;
                         state.activeIndex=-2;
                     }
                     return;
@@ -521,18 +622,19 @@ object NeteaseLyrics {
                     if(visible){
                         requestAnimationFrame(function(){
                             syncEdgePadding();
-                            renderReady(Number(window.position)||0,true);
+                            renderReady(playbackPositionMs(),true);
                         });
                     }
                 }
 
                 var title=String(window.track||'').trim();
                 var artist=String(window.artist||'').trim();
-                var duration=Number(window.duration);
+                var duration=playbackDurationMs();
                 if(!title||!isFinite(duration)||duration<=0){
                     if(state.trackKey||state.lines.length||state.viewKind!=='idle'){
                         state.generation++;
                         state.trackKey='';
+                        state.retryAt=0;
                         showStatus('idle');
                     }
                     return;
@@ -544,7 +646,13 @@ object NeteaseLyrics {
                     loadTrack(key,title,artist,duration);
                     return;
                 }
-                if(state.lines.length) renderReady(Number(window.position)||0);
+                if(state.retryAt&&Date.now()>=state.retryAt){
+                    delete state.cache[key];
+                    state.retryAt=0;
+                    loadTrack(key,title,artist,duration);
+                    return;
+                }
+                if(state.lines.length) renderReady(playbackPositionMs());
             }
 
             var observer=new MutationObserver(queueMount);
