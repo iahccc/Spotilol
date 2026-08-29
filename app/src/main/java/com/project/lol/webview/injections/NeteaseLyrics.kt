@@ -36,7 +36,8 @@ object NeteaseLyrics {
                 generation:0,
                 cache:Object.create(null),
                 retryAt:0,
-                mountQueued:false
+                mountQueued:false,
+                keepScreenOn:null
             };
             window.__spotilolNeteaseLyrics=state;
 
@@ -84,6 +85,21 @@ object NeteaseLyrics {
 
             function isLyricsVisible(){
                 return !!(state.open&&state.player&&state.player.isConnected&&!state.player.classList.contains('spl-mini')&&isPlayerActive());
+            }
+
+            function setLyricsKeepScreenOn(enabled,force){
+                enabled=!!enabled;
+                if(!force&&state.keepScreenOn===enabled) return;
+                state.keepScreenOn=enabled;
+                try {
+                    if(window.AndBridge&&typeof AndBridge.setLyricsKeepScreenOn==='function'){
+                        AndBridge.setLyricsKeepScreenOn(enabled);
+                    }
+                } catch(e){}
+            }
+
+            function syncLyricsKeepScreenOn(){
+                setLyricsKeepScreenOn(isLyricsVisible()&&document.visibilityState==='visible'&&window.playing===true,false);
             }
 
             function syncEdgePadding(){
@@ -157,6 +173,7 @@ object NeteaseLyrics {
                     state.button.setAttribute('aria-expanded',state.open?'true':'false');
                 }
                 state.panelVisible=isLyricsVisible();
+                syncLyricsKeepScreenOn();
                 if(state.panelVisible&&(changed||forceFollow||!wasVisible)){
                     requestAnimationFrame(function(){
                         syncEdgePadding();
@@ -609,6 +626,7 @@ object NeteaseLyrics {
                 var active=isPlayerActive();
                 if(!active){
                     if(state.panelVisible){state.panelVisible=false;clearManualBrowse();}
+                    syncLyricsKeepScreenOn();
                     if(state.modeActive){
                         state.modeActive=false;
                         state.generation++;
@@ -636,6 +654,7 @@ object NeteaseLyrics {
                         });
                     }
                 }
+                syncLyricsKeepScreenOn();
 
                 var title=String(window.track||'').trim();
                 var artist=String(window.artist||'').trim();
@@ -674,6 +693,13 @@ object NeteaseLyrics {
                     syncEdgePadding();
                     if(!state.manualBrowse)followCurrent('auto');
                 });
+            });
+            window.addEventListener('pagehide',function(){
+                setLyricsKeepScreenOn(false,true);
+            });
+            document.addEventListener('visibilitychange',function(){
+                if(document.visibilityState!=='visible') setLyricsKeepScreenOn(false,true);
+                else syncLyricsKeepScreenOn();
             });
             mountPlayer();
             update();
