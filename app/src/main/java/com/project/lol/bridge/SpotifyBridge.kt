@@ -13,7 +13,6 @@ import java.net.URL
 import java.util.Locale
 
 class SpotifyBridge(activityRef: WeakReference<Activity>) {
-
     companion object {
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
@@ -27,7 +26,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             "sec-ch-ua-model"
         )
     }
-
     private val activityRef = activityRef
     var onLoginDetected: (() -> Unit)? = null
     var onPlayLoaded: (() -> Unit)? = null
@@ -37,7 +35,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
     var onEnterPipRequest: (() -> Unit)? = null
     var onEnterPipVideoRequest: ((Int, Int) -> Unit)? = null
     var onDownloadTrack: ((String) -> Unit)? = null
-
     @JavascriptInterface
     fun loginDetected() {
         val activity = activityRef.get() ?: return
@@ -49,7 +46,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             onLoginDetected?.invoke()
         }
     }
-
     @JavascriptInterface
     fun deferMessage(msg: String?) {
         val activity = activityRef.get() ?: return
@@ -63,11 +59,18 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             Toast.makeText(activity, display, Toast.LENGTH_SHORT).show()
         }
     }
-
     @JavascriptInterface
     fun isWoke(): Boolean {
         val activity = activityRef.get() ?: return false
         return activity.window?.decorView?.visibility == View.VISIBLE
+    }
+
+    @JavascriptInterface
+    fun setLyricsKeepScreenOn(enabled: Boolean) {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            activity.window?.decorView?.keepScreenOn = enabled
+        }
     }
 
     @JavascriptInterface
@@ -81,7 +84,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
     @JavascriptInterface
     fun cssInjected() {
     }
-
     @JavascriptInterface
     fun dbg(level: String?, msg: String?) {
         val m = msg ?: return
@@ -96,7 +98,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
         }
         com.project.lol.util.DebugLogStore.log(tag, m)
     }
-
     @JavascriptInterface
     fun playLoaded() {
         val activity = activityRef.get() ?: return
@@ -110,7 +111,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
         onMediaPosition?.invoke(position)
         MediaNotificationService.instance?.updatePlaybackPosition(position)
     }
-
     @JavascriptInterface
     fun recMediaStatus(json: String?) {
         json?.let {
@@ -126,7 +126,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
     @JavascriptInterface
     fun manageTSleep(enabled: Boolean) {
     }
-
     @JavascriptInterface
     fun recAccountName(name: String) {
         val activity = activityRef.get() ?: return
@@ -138,7 +137,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
                 .apply()
         }
     }
-
     @JavascriptInterface
     fun openTimerDialog() {
         val activity = activityRef.get() ?: return
@@ -154,7 +152,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             onEnterPipRequest?.invoke()
         }
     }
-
     @JavascriptInterface
     fun enterPipVideo(w: Int, h: Int) {
         val activity = activityRef.get() ?: return
@@ -167,7 +164,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
     fun downloadTrack(json: String?) {
         json?.let { onDownloadTrack?.invoke(it) }
     }
-
     @JavascriptInterface
     fun nFetch(url: String, optsJson: String?): String {
         val errorResult = { e: Exception ->
@@ -181,7 +177,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
                 "{\"status\":0,\"body\":\"error\",\"headers\":{}}"
             }
         }
-
         var conn: HttpURLConnection? = null
         return try {
             val opts = if (optsJson.isNullOrBlank()) JSONObject() else JSONObject(optsJson)
@@ -189,7 +184,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             val body = if (opts.has("body") && !opts.isNull("body")) opts.getString("body") else null
             val headersJson =
                 if (opts.has("headers") && !opts.isNull("headers")) opts.getJSONObject("headers") else JSONObject()
-
             conn = URL(url).openConnection() as HttpURLConnection
             conn.apply {
                 requestMethod = method
@@ -217,7 +211,6 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
                     outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 }
             }
-
             val code = conn.responseCode
             val headerFields = conn.headerFields
             headerFields.forEach { (key, values) ->
@@ -226,10 +219,8 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
                 }
             }
             CookieManager.getInstance().flush()
-
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val responseBody = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-
             val responseHeaders = JSONObject()
             headerFields.forEach { (key, values) ->
                 if (key != null && values.isNotEmpty()) responseHeaders.put(key, values.first())
