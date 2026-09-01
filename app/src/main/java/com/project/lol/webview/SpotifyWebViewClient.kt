@@ -1,5 +1,4 @@
 package com.project.lol.webview
-
 import android.graphics.Bitmap
 import android.util.Log
 import android.webkit.CookieManager
@@ -15,7 +14,6 @@ import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
-
 class SpotifyWebViewClient(
     private val onLoginRequired: () -> Unit,
     private val onNavStateChanged: ((Boolean) -> Unit)? = null,
@@ -25,7 +23,6 @@ class SpotifyWebViewClient(
 
     private var currentWebView: WebView? = null
     private var prefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
-
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
         super.doUpdateVisitedHistory(view, url, isReload)
         onNavStateChanged?.invoke(view?.canGoBack() == true)
@@ -37,7 +34,6 @@ class SpotifyWebViewClient(
 
         currentWebView = view
         registerPrefsListener(view)
-
         if (url.startsWith("https://www.facebook.com/privacy/consent/gdp/")) {
             onPageFinishedClean(view, FbGdprBypass.CONTENT)
             return
@@ -49,7 +45,6 @@ class SpotifyWebViewClient(
 
         val loggedIn = view.context.getSharedPreferences("spotilol_prefs", 0)
             .getBoolean("LoggedIn", false)
-
         if (!loggedIn) {
             onPageFinishedClean(view, LoginDetection.CONTENT)
             return
@@ -58,7 +53,6 @@ class SpotifyWebViewClient(
         view.postDelayed({
             injectPlayerControl(view)
         }, 500)
-
         view.evaluateJavascript(LogoutCheck.CONTENT) { result ->
             if (result == "\"out\"") {
                 view.context.getSharedPreferences("spotilol_prefs", 0)
@@ -67,7 +61,6 @@ class SpotifyWebViewClient(
             }
         }
     }
-
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         val useProxy = view?.context?.getSharedPreferences("spotilol_prefs", 0)
@@ -88,7 +81,6 @@ class SpotifyWebViewClient(
         view?.evaluateJavascript(PowerSave.CONTENT, null)
         view?.evaluateJavascript(SettingsFix.CONTENT, null)
     }
-
     override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
         Log.w(TAG, "Renderer process gone: crashed=${detail?.didCrash()}")
         view?.let {
@@ -98,7 +90,6 @@ class SpotifyWebViewClient(
         onRenderProcessGone?.invoke()
         return true
     }
-
     override fun onReceivedError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -110,7 +101,6 @@ class SpotifyWebViewClient(
         val desc = try { error?.description?.toString() ?: "" } catch (_: Exception) { "" }
         onWebViewError?.invoke(code, desc)
     }
-
     override fun onReceivedHttpError(
         view: WebView?,
         request: WebResourceRequest?,
@@ -123,7 +113,6 @@ class SpotifyWebViewClient(
             onWebViewError?.invoke(status, "HTTP $status")
         }
     }
-
     override fun shouldInterceptRequest(
         view: WebView,
         request: WebResourceRequest
@@ -135,7 +124,6 @@ class SpotifyWebViewClient(
             return WebResourceResponse("text/plain", "utf-8", 200, "OK", headers,
                 ByteArrayInputStream(ByteArray(0)))
         }
-
         if (AdIdStore.matches(url)) {
             view.post { view.evaluateJavascript("AndBridge.deferMessage('adblock')", null) }
             val silent = view.context.assets?.open("silent.mp3") ?: return null
@@ -144,7 +132,6 @@ class SpotifyWebViewClient(
 
         val useProxy = view.context.getSharedPreferences("spotilol_prefs", 0)
             .getString("ConnectionMode", "normal") == "proxy"
-
         if (!useProxy) {
             try {
                 val conn = URL(url).openConnection() as HttpURLConnection
@@ -197,7 +184,6 @@ class SpotifyWebViewClient(
             }
             return null
         }
-
         val adMatch = matchAdCdn(url)
         if (adMatch != null) {
             view.post { view.evaluateJavascript("AndBridge.deferMessage('adblock')", null) }
@@ -207,7 +193,6 @@ class SpotifyWebViewClient(
 
         return null
     }
-
     private fun isGoogleAuthUrl(url: String?): Boolean {
         if (url == null) return false
         val host = runCatching { android.net.Uri.parse(url).host }.getOrNull()
@@ -218,7 +203,6 @@ class SpotifyWebViewClient(
             host.endsWith(".youtube.com") ||
             host == "youtube.com"
     }
-
     private fun injectPlayerControl(view: WebView) {
         val prefs = view.context.getSharedPreferences("spotilol_prefs", 0)
         val autoPlayMode = prefs.getString("APlayMode", "disabled") ?: "disabled"
@@ -227,7 +211,6 @@ class SpotifyWebViewClient(
         val customCss = prefs.getString("CustomCss", "") ?: ""
         val playerMode = prefs.getString("PlayerMode", "spotilol") ?: "spotilol"
         val useProxy = prefs.getString("ConnectionMode", "normal") == "proxy"
-
         val js = buildString {
             append("window.autoPlayMode='$autoPlayMode';\n")
             append("window.closeNpPref=$closeNowPlay;\n")
@@ -272,6 +255,7 @@ class SpotifyWebViewClient(
             if (playerMode == "spotilol") {
                 append(SpotilolPlayer.CONTENT)
             }
+            append(NeteaseLyrics.CONTENT)
         }
         val cleanJs = JsUtils.stripConsoleLogs(js) + "\n" +
                 buildAmoledJs(amoledEnabled) + "\n" +
@@ -282,7 +266,6 @@ class SpotifyWebViewClient(
             view.evaluateJavascript(cleanJs, null)
         }
     }
-
     private fun registerPrefsListener(view: WebView) {
         val prefs = view.context.getSharedPreferences("spotilol_prefs", 0)
         prefsListener?.let { prefs.unregisterOnSharedPreferenceChangeListener(it) }
@@ -305,7 +288,6 @@ class SpotifyWebViewClient(
         }
         prefs.registerOnSharedPreferenceChangeListener(prefsListener)
     }
-
     private fun switchPlayerMode(view: WebView, mode: String) {
         if (mode == "original") {
             val js = """
@@ -335,7 +317,6 @@ class SpotifyWebViewClient(
             view.evaluateJavascript(js, null)
         }
     }
-
     private fun onPageFinishedClean(view: WebView, js: String) {
         view.evaluateJavascript(JsUtils.stripConsoleLogs(js), null)
     }
