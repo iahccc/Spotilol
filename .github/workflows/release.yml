@@ -1,0 +1,209 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish signed APK
+    runs-on: ubuntu-latest
+    env:
+      APK_BASENAME: Spotilol-${{ github.ref_name }}-release.apk
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must use the MAJOR.MINOR.PATCH format without a v prefix."
+            exit 1
+          fi
+
+          version_name="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts)"
+          version_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' app/build.gradle.kts)"
+
+          if [[ -z "${version_name}" || -z "${version_code}" ]]; then
+            echo "::error::Could not read versionName or versionCode from app/build.gradle.kts."
+            exit 1
+          fi
+          if [[ "${tag}" != "${version_name}" ]]; then
+            echo "::error::Tag ${tag} does not match versionName ${version_name}."
+            exit 1
+          fi
+          if [[ ! "${version_code}" =~ ^[0-9]+$ || "${version_code}" -le 0 ]]; then
+            echo "::error::versionCode must be a positive integer."
+            exit 1
+          fi
+
+          previous_tag="$(
+            git tag --list |
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
+              grep -Fxv "${tag}" |
+              sort -V |
+              tail -n 1 || true
+          )"
+
+          if [[ -n "${previous_tag}" ]]; then
+            previous_version_code="$(
+              git show "${previous_tag}:app/build.gradle.kts" |
+                sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p'
+            )"
+            if [[ ! "${previous_version_code}" =~ ^[0-9]+$ ]]; then
+              echo "::error::Could not read versionCode from previous tag ${previous_tag}."
+              exit 1
+            fi
+            if (( version_code <= previous_version_code )); then
+              echo "::error::versionCode ${version_code} must be greater than ${previous_version_code} from ${previous_tag}."
+              exit 1
+            fi
+          fi
+
+          echo "Validated ${tag} (versionCode ${version_code})."
+
+      - name: Restore private build files
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          [[ -n "${ANDROID_KEYSTORE_BASE64}" ]] || missing+=(ANDROID_KEYSTORE_BASE64)
+          [[ -n "${ANDROID_KEYSTORE_PASSWORD}" ]] || missing+=(ANDROID_KEYSTORE_PASSWORD)
+          [[ -n "${ANDROID_KEY_ALIAS}" ]] || missing+=(ANDROID_KEY_ALIAS)
+          [[ -n "${ANDROID_KEY_PASSWORD}" ]] || missing+=(ANDROID_KEY_PASSWORD)
+          [[ -n "${GOOGLE_SERVICES_JSON_BASE64}" ]] || missing+=(GOOGLE_SERVICES_JSON_BASE64)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required Actions secrets: ${missing[*]}"
+            exit 1
+          fi
+
+          mkdir -p keystore
+          if ! printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > keystore/release.jks; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not valid Base64."
+            exit 1
+          fi
+          if ! printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json; then
+            echo "::error::GOOGLE_SERVICES_JSON_BASE64 is not valid Base64."
+            exit 1
+          fi
+          if ! jq empty app/google-services.json; then
+            echo "::error::Decoded google-services.json is not valid JSON."
+            exit 1
+          fi
+
+          escape_property() {
+            local value="$1"
+            value="${value//\\/\\\\}"
+            value="${value// /\\ }"
+            value="${value//:/\\:}"
+            value="${value//=/\\=}"
+            printf '%s' "${value}"
+          }
+
+          {
+            printf 'storeFile=release.jks\n'
+            printf 'storePassword=%s\n' "$(escape_property "${ANDROID_KEYSTORE_PASSWORD}")"
+            printf 'keyAlias=%s\n' "$(escape_property "${ANDROID_KEY_ALIAS}")"
+            printf 'keyPassword=%s\n' "$(escape_property "${ANDROID_KEY_PASSWORD}")"
+          } > keystore/keystore.properties
+
+          chmod 600 keystore/release.jks keystore/keystore.properties app/google-services.json
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Verify and prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_apk="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "${source_apk}" ]]; then
+            echo "::error::Release APK was not produced at ${source_apk}."
+            exit 1
+          fi
+
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [[ -z "${apksigner}" ]]; then
+            echo "::error::Could not find apksigner in the Android SDK."
+            exit 1
+          fi
+          "${apksigner}" verify --verbose --print-certs "${source_apk}"
+
+          mkdir -p dist
+          cp "${source_apk}" "dist/${APK_BASENAME}"
+          (
+            cd dist
+            sha256sum "${APK_BASENAME}" > "${APK_BASENAME}.sha256"
+          )
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Spotilol-${{ github.ref_name }}-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          apk="dist/${APK_BASENAME}"
+          checksum="${apk}.sha256"
+
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${apk}" "${checksum}" \
+              --clobber \
+              --repo "${GITHUB_REPOSITORY}"
+          else
+            gh release create "${tag}" "${apk}" "${checksum}" \
+              --verify-tag \
+              --title "Spotilol - v${tag}" \
+              --generate-notes \
+              --repo "${GITHUB_REPOSITORY}"
+          fi
