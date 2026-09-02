@@ -24,7 +24,7 @@ android {
         applicationId = "com.project.lol"
         minSdk = 28
         targetSdk = 36
-        versionCode = 13
+        versionCode = 15
         versionName = "1.1.3"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
