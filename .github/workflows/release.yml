@@ -3,7 +3,7 @@ name: Build and publish release
 on:
   push:
     tags:
-      - "*.*.*"
+      - "iahc-*.*.*"
 
 permissions:
   contents: write
@@ -31,10 +31,11 @@ jobs:
           set -euo pipefail
 
           tag="${GITHUB_REF_NAME}"
-          if [[ ! "${tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tags must use the MAJOR.MINOR.PATCH format without a v prefix."
+          if [[ ! "${tag}" =~ ^iahc-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Release tags must use the iahc-MAJOR.MINOR.PATCH format."
             exit 1
           fi
+          release_version="${BASH_REMATCH[1]}"
 
           version_name="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' app/build.gradle.kts)"
           version_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' app/build.gradle.kts)"
@@ -43,7 +44,7 @@ jobs:
             echo "::error::Could not read versionName or versionCode from app/build.gradle.kts."
             exit 1
           fi
-          if [[ "${tag}" != "${version_name}" ]]; then
+          if [[ "${release_version}" != "${version_name}" ]]; then
             echo "::error::Tag ${tag} does not match versionName ${version_name}."
             exit 1
           fi
@@ -52,27 +53,30 @@ jobs:
             exit 1
           fi
 
-          previous_tag="$(
-            git tag --list |
-              grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
-              grep -Fxv "${tag}" |
-              sort -V |
-              tail -n 1 || true
-          )"
-
-          if [[ -n "${previous_tag}" ]]; then
-            previous_version_code="$(
-              git show "${previous_tag}:app/build.gradle.kts" |
+          highest_version_code=0
+          highest_version_tag=""
+          while IFS= read -r candidate_tag; do
+            candidate_version_code="$(
+              git show "${candidate_tag}:app/build.gradle.kts" |
                 sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p'
             )"
-            if [[ ! "${previous_version_code}" =~ ^[0-9]+$ ]]; then
-              echo "::error::Could not read versionCode from previous tag ${previous_tag}."
+            if [[ ! "${candidate_version_code}" =~ ^[0-9]+$ ]]; then
+              echo "::error::Could not read versionCode from previous tag ${candidate_tag}."
               exit 1
             fi
-            if (( version_code <= previous_version_code )); then
-              echo "::error::versionCode ${version_code} must be greater than ${previous_version_code} from ${previous_tag}."
-              exit 1
+            if (( candidate_version_code > highest_version_code )); then
+              highest_version_code="${candidate_version_code}"
+              highest_version_tag="${candidate_tag}"
             fi
+          done < <(
+            git tag --list |
+              grep -E '^(iahc-)?[0-9]+\.[0-9]+\.[0-9]+$' |
+              grep -Fxv "${tag}" || true
+          )
+
+          if (( version_code <= highest_version_code )); then
+            echo "::error::versionCode ${version_code} must be greater than ${highest_version_code} from ${highest_version_tag}."
+            exit 1
           fi
 
           echo "Validated ${tag} (versionCode ${version_code})."
@@ -203,7 +207,7 @@ jobs:
           else
             gh release create "${tag}" "${apk}" "${checksum}" \
               --verify-tag \
-              --title "Spotilol - v${tag}" \
+              --title "Spotilol (iahc fork) - v${tag#iahc-}" \
               --generate-notes \
               --repo "${GITHUB_REPOSITORY}"
           fi
