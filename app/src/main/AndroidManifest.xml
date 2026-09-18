@@ -31,6 +31,7 @@
         <activity
             android:name=".ui.SplashActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="fullSensor"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.Spotilol">
@@ -42,13 +43,34 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="fullSensor"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.Spotilol" />
+            android:theme="@style/Theme.Spotilol">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="open.spotify.com" />
+                <data
+                    android:scheme="https"
+                    android:host="spotify.com" />
+                <data
+                    android:scheme="https"
+                    android:host="www.spotify.com" />
+                <data
+                    android:scheme="https"
+                    android:host="play.spotify.com" />
+                <data
+                    android:scheme="https"
+                    android:host="spotify.link" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".ui.OfflineActivity"

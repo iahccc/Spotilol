@@ -172,6 +172,7 @@ class MainActivity : ComponentActivity() {
     private val loadingProgress = mutableIntStateOf(100)
     private val blockServiceWorkerState = mutableStateOf(true)
     private val webViewError = mutableStateOf<Pair<Int, String>?>(null)
+    private var pendingLink: String? = null
 
     private val notifPermLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -233,6 +234,11 @@ class MainActivity : ComponentActivity() {
         blockServiceWorkerState.value = prefs.getBoolean("BlockServiceWorker", true)
         applyOrientation()
         applyKeepScreenOn()
+
+        pendingLink = extractSpotifyLink(intent)
+        if (pendingLink != null && !serviceEnabledState.value) {
+            setServiceEnabled(true)
+        }
 
         setContent {
             val serviceEnabled = serviceEnabledState.value
@@ -511,11 +517,11 @@ class MainActivity : ComponentActivity() {
                                             ProxyController.getInstance().clearProxyOverride(executor, { })
                                         }
 
-                                        if (loggedIn) {
-                                            loadUrl("https://open.spotify.com/")
-                                        } else {
-                                            loadUrl("https://accounts.spotify.com/login")
-                                        }
+                                        val target = pendingLink
+                                            ?: if (loggedIn) "https://open.spotify.com/"
+                                            else "https://accounts.spotify.com/login"
+                                        pendingLink = null
+                                        loadUrl(target)
                                     }
                                 },
                                 modifier = Modifier
@@ -525,6 +531,15 @@ class MainActivity : ComponentActivity() {
 
                             LaunchedEffect(webView) {
                                 webView?.let { startMediaService() }
+                            }
+
+                            LaunchedEffect(webView) {
+                                val link = pendingLink
+                                val wv = webView
+                                if (link != null && wv != null) {
+                                    pendingLink = null
+                                    wv.loadUrl(link)
+                                }
                             }
 
                             val progressAlpha by animateFloatAsState(
@@ -613,6 +628,13 @@ class MainActivity : ComponentActivity() {
             }
 
         }
+    }
+
+    private fun extractSpotifyLink(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        val host = uri.host ?: return null
+        val accepted = host == "spotify.link" || host.endsWith("spotify.com")
+        return if (accepted) uri.toString() else null
     }
 
     private fun setServiceEnabled(newValue: Boolean) {
@@ -1386,10 +1408,68 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val loggedIn = getSharedPreferences("spotilol_prefs", MODE_PRIVATE)
-            .getBoolean("LoggedIn", false)
-        if (!loggedIn) {
-            webView?.loadUrl("https://accounts.spotify.com/login")
+        val link = extractSpotifyLink(intent)
+        if (link == null) {
+            val loggedIn = prefs.getBoolean("LoggedIn", false)
+            if (!loggedIn) {
+                webView?.loadUrl("https://accounts.spotify.com/login")
+            }
+            return
+        }
+        if (!prefs.getBoolean("ServiceOn", true)) {
+            pendingLink = link
+            setServiceEnabled(true)
+        } else {
+            val wv = webView
+            if (wv != null) {
+                navigateSpotifyLink(link)
+            } else {
+                pendingLink = link
+            }
+        }
+    }
+
+    private fun navigateSpotifyLink(link: String) {
+        val wv = webView ?: run {
+            pendingLink = link
+            return
+        }
+        val currentHost = wv.url?.let { Uri.parse(it).host }
+        val target = Uri.parse(link)
+        val path = target.path ?: ""
+        val canSpa = currentHost == "open.spotify.com" &&
+            target.host == "open.spotify.com" &&
+            path.length > 1
+        if (!canSpa) {
+            wv.loadUrl(link)
+            return
+        }
+        val js = """
+            (function() {
+                try {
+                    var target = '$path';
+                    if (window.location.pathname === target) return 'same';
+                    window.history.pushState({}, '', target);
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                    return 'pushed';
+                } catch (e) { return 'error:' + e.message; }
+            })()
+        """.trimIndent()
+        wv.evaluateJavascript(js) { result ->
+            val status = result?.trim('"') ?: "null"
+            if (status != "pushed") {
+                wv.loadUrl(link)
+                return@evaluateJavascript
+            }
+            wv.postDelayed({
+                if (wv.url == null) return@postDelayed
+                wv.evaluateJavascript("window.location.pathname") { check ->
+                    val pathname = check?.trim('"') ?: ""
+                    if (pathname != path) {
+                        wv.loadUrl(link)
+                    }
+                }
+            }, 800)
         }
     }
 
