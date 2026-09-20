@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - "iahc-*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to build, e.g. iahc-1.1.5"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -17,12 +23,14 @@ jobs:
     name: Build and publish signed APK
     runs-on: ubuntu-latest
     env:
-      APK_BASENAME: Spotilol-${{ github.ref_name }}-release.apk
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      APK_BASENAME: Spotilol-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}-release.apk
 
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Validate release version
@@ -30,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           if [[ ! "${tag}" =~ ^iahc-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "::error::Release tags must use the iahc-MAJOR.MINOR.PATCH format."
             exit 1
@@ -184,7 +192,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Spotilol-${{ github.ref_name }}-release
+          name: Spotilol-${{ env.RELEASE_TAG }}-release
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -196,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           apk="dist/${APK_BASENAME}"
           checksum="${apk}.sha256"
 
