@@ -17,7 +17,6 @@ object NeteaseLyrics {
             var LYRIC_URL='https://music.163.com/api/song/lyric';
             var EMPTY_CACHE_MS=120000;
             var ERROR_RETRY_MS=30000;
-            var MAX_LYRIC_CANDIDATES=5;
             var state={
                 player:null,
                 button:null,
@@ -247,29 +246,52 @@ object NeteaseLyrics {
                 catch(e){return text.replace(/[\s\W_]+/g,'');}
             }
 
-            function normalizeSearchText(value){
-                var text=String(value||'');
-                try{text=text.normalize('NFKC');}catch(e){}
-                text=text.replace(/\s+(?:feat(?:uring)?\.?|ft\.?)\s+.*$/i,' ');
-                text=text.replace(/\s*[-–—:]\s*(?:\d{4}\s*)?(?:remaster(?:ed)?|live|version|edit|mix|acoustic|instrumental|现场|重制|伴奏).*$/i,' ');
-                text=text.replace(/[\(\[（【][^\)\]）】]*(?:feat(?:uring)?\.?|ft\.?|remaster(?:ed)?|live|version|edit|mix|acoustic|instrumental|现场|重制|伴奏)[^\)\]）】]*[\)\]）】]/gi,' ');
-                return text.replace(/\s+/g,' ').trim();
+            // Matching algorithm adapted from Hyun's MIT-licensed userscript:
+            // "YouTube Music / Spotify 网易云歌词显示".
+            function splitTitle(value){
+                var title=String(value||'');
+                try{title=title.normalize('NFKC');}catch(e){}
+                var masterPattern=/(?:[「『](.+?)[」』])|(?:【.*?】|〖.*?〗|\(.*?\)|（.*?）|\[.*?\])|(\s+-\s+|\s*[\/|:|│]\s*)/i;
+                var noiseWords=/\b(MV|PV)\b|\b(?:covered by|feat(?:uring)?\.?|ft\.?)\b.+/gi;
+
+                function parse(text){
+                    if(!text||!text.trim()) return [];
+                    var match=text.match(masterPattern);
+                    if(!match) return [text];
+                    var before=text.substring(0,match.index);
+                    var after=text.substring(match.index+match[0].length);
+                    var content=match[1];
+                    var delimiter=match[2];
+                    if(delimiter&&(before.trim().length<2||after.trim().length<2)){
+                        var remaining=parse(after);
+                        return [before+match[0]+(remaining[0]||'')].concat(remaining.slice(1));
+                    }
+                    return parse(before).concat(content?[content]:[],parse(after));
+                }
+
+                var parts=[];
+                parse(title).forEach(function(part){
+                    part=part.replace(noiseWords,'').replace(/\s+/g,' ').trim();
+                    if(part&&parts.indexOf(part)===-1) parts.push(part);
+                });
+                return parts;
             }
 
             function buildSearchQueries(title,artist){
-                var rawTitle=String(title||'').trim();
-                var cleanTitle=normalizeSearchText(rawTitle)||rawTitle;
+                var parts=splitTitle(title);
                 var cleanArtist=String(artist||'').trim();
                 try{cleanArtist=cleanArtist.normalize('NFKC');}catch(e){}
+                if(!parts.length){
+                    var fallback=String(title||'').trim();
+                    if(fallback) parts.push(fallback);
+                }
                 var queries=[];
                 function add(query){
                     query=String(query||'').replace(/\s+/g,' ').trim();
                     if(query&&queries.indexOf(query)===-1) queries.push(query);
                 }
-                add(cleanTitle+' '+cleanArtist);
-                if(rawTitle!==cleanTitle) add(rawTitle+' '+cleanArtist);
-                add(cleanTitle);
-                if(rawTitle!==cleanTitle) add(rawTitle);
+                parts.forEach(add);
+                if(parts[0]&&parts[0]!==cleanArtist) add(parts[0]+' '+cleanArtist);
                 return queries;
             }
 
@@ -286,10 +308,15 @@ object NeteaseLyrics {
                 return isFinite(rawDuration)&&rawDuration>0&&rawDuration<10000?value*1000:value;
             }
 
-            function similarity(a,b){
-                a=normalizeText(a);
-                b=normalizeText(b);
-                if(a===b) return a?1:0;
+            function matchText(value){
+                var text=String(value||'');
+                try{text=text.normalize('NFKC');}catch(e){}
+                return text.toLowerCase().trim();
+            }
+
+            function normalizedLevenshtein(a,b){
+                a=matchText(a);
+                b=matchText(b);
                 if(!a||!b) return 0;
                 var previous=new Array(b.length+1);
                 var current=new Array(b.length+1);
@@ -306,44 +333,35 @@ object NeteaseLyrics {
                 return 1-previous[b.length]/Math.max(a.length,b.length);
             }
 
-            function artistSimilarity(target,candidates){
-                var targetParts=String(target||'').split(/[,/&、·;]+/).filter(function(part){return normalizeText(part);});
-                var candidateParts=(candidates||[]).map(function(item){return item&&item.name?item.name:item;}).filter(function(part){return normalizeText(part);});
-                if(!targetParts.length||!candidateParts.length) return null;
-                var best=0;
-                targetParts.forEach(function(left){
-                    candidateParts.forEach(function(right){
-                        best=Math.max(best,similarity(left,right));
-                    });
+            function bonusCompare(fullTitle,searchTitle){
+                var full=matchText(fullTitle);
+                var search=matchText(searchTitle);
+                if(!full||!search) return 0;
+                var weight=.5;
+                if(full.indexOf(search)===0) weight*=2;
+                else if(full.indexOf(search)!==-1) weight*=1.5;
+                return weight*normalizedLevenshtein(full,search);
+            }
+
+            function scoreSong(song,title,artist,parts){
+                var songTitle=String(song&&song.name||'');
+                var cleanedTitle=splitTitle(songTitle).join('')||songTitle;
+                var averageScore=0;
+                parts.forEach(function(part,index){
+                    var weight=1/(index*2+1);
+                    averageScore+=bonusCompare(cleanedTitle,part)*weight/parts.length;
                 });
-                best=Math.max(best,similarity(targetParts.join(' '),candidateParts.join(' ')));
-                return best;
-            }
-
-            function durationSimilarity(target,candidate){
-                target=Number(target);candidate=Number(candidate);
-                if(!isFinite(target)||target<=0||!isFinite(candidate)||candidate<=0) return null;
-                var difference=Math.abs(target-candidate);
-                if(difference<=2000) return 1;
-                return Math.max(0,1-(difference-2000)/13000);
-            }
-
-            function scoreSong(song,title,artist,duration){
-                var titleScore=similarity(title,song&&song.name);
+                var titleScore=Math.max(bonusCompare(songTitle,title)+.01,averageScore);
                 var songArtists=song&&(song.artists||song.ar)||[];
-                var artistScore=artistSimilarity(artist,songArtists);
-                var songDuration=song&&(song.duration||song.dt);
-                var durationScore=durationSimilarity(duration,songDuration);
-                var weighted=titleScore*.65;
-                var weight=.65;
-                if(artistScore!==null){weighted+=artistScore*.25;weight+=.25;}
-                if(durationScore!==null){weighted+=durationScore*.10;weight+=.10;}
+                var artistScore=0;
+                songArtists.forEach(function(item){
+                    artistScore=Math.max(artistScore,bonusCompare(item&&item.name?item.name:item,artist));
+                });
                 return {
                     song:song,
                     title:titleScore,
                     artist:artistScore,
-                    duration:durationScore,
-                    total:weight?weighted/weight:0
+                    total:titleScore*10+artistScore
                 };
             }
 
@@ -364,20 +382,12 @@ object NeteaseLyrics {
                 });
             }
 
-            function rankSongs(songs,title,artist,duration){
-                var ranked=(songs||[]).map(function(song){return scoreSong(song,title,artist,duration);});
+            function rankSongs(songs,title,artist){
+                var parts=splitTitle(title);
+                if(!parts.length) parts=[String(title||'').trim()];
+                var ranked=(songs||[]).map(function(song){return scoreSong(song,title,artist,parts);});
                 ranked.sort(function(a,b){return b.total-a.total;});
-                var accepted=ranked.filter(function(candidate){
-                    if(candidate.title>=.65&&candidate.total>=.72) return true;
-                    var targetTitle=normalizeText(title);
-                    var candidateTitle=normalizeText(candidate.song&&candidate.song.name);
-                    return !!(
-                        targetTitle&&candidateTitle&&targetTitle.length===candidateTitle.length&&
-                        candidate.artist!==null&&candidate.artist>=.9&&
-                        candidate.duration!==null&&candidate.duration>=.9
-                    );
-                });
-                return accepted.slice(0,MAX_LYRIC_CANDIDATES).map(function(candidate){return candidate.song;});
+                return ranked.map(function(candidate){return candidate.song;});
             }
 
             function parseLrc(text){
@@ -414,7 +424,7 @@ object NeteaseLyrics {
                 });
             }
 
-            function findSongs(title,artist,duration){
+            function findSongs(title,artist){
                 var queries=buildSearchQueries(title,artist);
                 var songs=[];
                 var seen=Object.create(null);
@@ -435,12 +445,12 @@ object NeteaseLyrics {
                 });
                 return sequence.then(function(){
                     if(!successfulSearches) throw new Error('All lyric searches failed');
-                    return rankSongs(songs,title,artist,duration);
+                    return rankSongs(songs,title,artist);
                 });
             }
 
             function fetchFirstLyrics(candidates){
-                var limit=Math.min((candidates||[]).length,MAX_LYRIC_CANDIDATES);
+                var limit=(candidates||[]).length;
                 var successfulResponses=0;
                 var failedResponses=0;
                 function next(index){
@@ -576,7 +586,7 @@ object NeteaseLyrics {
                 state.lines=[];
                 state.activeIndex=-2;
                 showStatus('loading');
-                findSongs(title,artist,duration).then(function(candidates){
+                findSongs(title,artist).then(function(candidates){
                     if(request!==state.generation||!state.modeActive||key!==state.trackKey) return null;
                     return fetchFirstLyrics(candidates);
                 }).then(function(lines){
