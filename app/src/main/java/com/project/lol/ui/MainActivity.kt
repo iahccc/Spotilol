@@ -20,7 +20,6 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.util.Rational
 import android.widget.Toast
 import android.view.LayoutInflater
@@ -85,6 +84,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,6 +102,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Popup
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
@@ -189,6 +190,10 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         super.onCreate(savedInstanceState)
 
         // Track screen view
@@ -420,20 +425,16 @@ class MainActivity : ComponentActivity() {
                             }
 
                             bridge.onDownloadTrack = { payload ->
-                                Log.d("Spl-DL", "bridge.onDownloadTrack: payload=$payload")
                                 wireDownloadCallbacks()
                                 startDownloadService()
                                 DownloadManager.downloadCurrentTrack(this@MainActivity, payload)
                             }
 
                             bridge.onDownloadCollection = { payload ->
-                                Log.d("Spl-DL", "bridge.onDownloadCollection: payload=${payload.take(300)}")
                                 wireDownloadCallbacks()
                                 startDownloadService()
                                 DownloadManager.downloadCollection(this@MainActivity, payload)
                             }
-
-
 
                             AndroidView(
                                 factory = { context ->
@@ -668,7 +669,6 @@ class MainActivity : ComponentActivity() {
 
     private fun switchOfflineMode(enabled: Boolean) {
         prefs.edit().putBoolean("OfflineMode", enabled).apply()
-        prefs.edit().putBoolean("ServiceOn", false).apply()
         stopService(Intent(this, MediaNotificationService::class.java))
         val intent = Intent(this, SplashActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -952,13 +952,12 @@ class MainActivity : ComponentActivity() {
                         Column(modifier = Modifier.width(220.dp)) {
                             Row(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(onClick = onOpenSettings)
+                                    .fillMaxWidth()                                                .clickable(onClick = onOpenSettings)
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Menu,
+                                    imageVector = Icons.Default.Settings,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurface
                                 )
@@ -970,7 +969,7 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.weight(1f)
                                 )
                                 Icon(
-                                    imageVector = Icons.Default.ChevronRight,
+                                    imageVector = Icons.Default.Menu,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                 )

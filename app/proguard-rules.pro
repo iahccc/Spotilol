@@ -40,3 +40,5 @@
 -dontwarn javax.script.**
 # do not add -keep class org.mozilla.javascript.** - it pulls in classes
 # referencing java.beans.* which breaks ART install-time verification
+
+-dontwarn java.lang.instrument.**

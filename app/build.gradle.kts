@@ -24,8 +24,8 @@ android {
         applicationId = "com.project.lol"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.1.4"
+        versionCode = 15
+        versionName = "1.1.5"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -111,7 +111,10 @@ dependencies {
     implementation(libs.newpipeextractor)
     implementation(libs.brotli)
     implementation(libs.okhttp)
-    implementation(libs.timber)
+
+    // Audio downloads: opus decoding, mp3 encoding
+    implementation(project(":lame"))
+    implementation(project(":opus"))
 
     // Core library desugaring (required by NewPipeExtractor)
     coreLibraryDesugaring(libs.desugaring)
