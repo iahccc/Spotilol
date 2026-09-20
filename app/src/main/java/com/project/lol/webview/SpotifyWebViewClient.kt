@@ -297,6 +297,7 @@ class SpotifyWebViewClient(
             append(PlaylistSort.CONTENT)
             if (playerMode == "spotilol") {
                 append(SpotilolPlayer.CONTENT)
+                append(NeteaseLyrics.CONTENT)
             }
         }
         val cleanJs = JsUtils.stripConsoleLogs(js) + "\n" +
