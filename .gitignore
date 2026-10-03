@@ -37,4 +37,7 @@ Desktop.ini
 # Logs
 *.log
 
+# Local CodeGraph index
+/.codegraph/
+
 scripts/
