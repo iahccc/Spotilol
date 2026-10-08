@@ -81,6 +81,13 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
         return visible
     }
 
+    fun setLyricsKeepScreenOn(enabled: Boolean) {
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            activity.window?.decorView?.keepScreenOn = enabled
+        }
+    }
+
     fun wakeUp() {
         Logger.v(CALL, "wakeUp")
     }
