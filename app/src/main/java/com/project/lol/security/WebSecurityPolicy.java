@@ -11,7 +11,7 @@ public final class WebSecurityPolicy {
     private static final Set<String> LOGIN = Set.of("accounts.spotify.com", "accounts.google.com", "consent.google.com", "www.facebook.com", "m.facebook.com", "appleid.apple.com");
     private static final Set<String> API = Set.of("open.spotify.com", "api.spotify.com", "api-partner.spotify.com", "clienttoken.spotify.com", "spclient.wg.spotify.com");
 
-    private static final Set<String> PLAYER_METHODS = Set.of("nFetch", "spicyLyrics", "loginDetected", "deferMessage", "wakeUp", "wakeOff", "cssInjected", "dbg", "clearDebugLog", "recAdContentIds", "playLoaded", "recMediaPosition", "recMediaStatus", "onMediaItemsLoaded", "onSearchCompleted", "manageTShut", "manageTSleep", "recAccountName", "openTimerDialog", "enterPip", "enterPipVideo", "enterVideoFullscreen", "exitVideoFullscreen", "enterLyricsPip", "playerExpanded", "wideVideo", "downloadTrack", "downloadCollection", "skipDownload", "cancelDownload");
+    private static final Set<String> PLAYER_METHODS = Set.of("nFetch", "neteaseFetch", "spicyLyrics", "setLyricsKeepScreenOn", "loginDetected", "deferMessage", "wakeUp", "wakeOff", "cssInjected", "dbg", "clearDebugLog", "recAdContentIds", "playLoaded", "recMediaPosition", "recMediaStatus", "onMediaItemsLoaded", "onSearchCompleted", "manageTShut", "manageTSleep", "recAccountName", "openTimerDialog", "enterPip", "enterPipVideo", "enterVideoFullscreen", "exitVideoFullscreen", "enterLyricsPip", "playerExpanded", "wideVideo", "downloadTrack", "downloadCollection", "skipDownload", "cancelDownload");
     public static boolean isBridgeCall(String origin, boolean mainFrame, String method) {
         if (!mainFrame || !isBridgeOrigin(origin)) return false;
         return isPlayer(origin) ? PLAYER_METHODS.contains(method) : "loginDetected".equals(method);
@@ -57,6 +57,13 @@ public final class WebSecurityPolicy {
         try {
             URI uri = new URI(origin);
             return (uri.getRawPath() == null || uri.getRawPath().isEmpty()) && uri.getRawQuery() == null && uri.getRawFragment() == null;
+        } catch (Exception e) { return false; }
+    }
+    public static boolean isNeteaseLyrics(String url) {
+        if (!"music.163.com".equals(httpsHost(url))) return false;
+        try {
+            String path = new URI(url).getPath();
+            return "/api/search/get/web".equals(path) || "/api/song/lyric".equals(path);
         } catch (Exception e) { return false; }
     }
     public static boolean isNativeFetch(String url) {

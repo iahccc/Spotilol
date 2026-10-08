@@ -384,11 +384,10 @@ object NeteaseLyrics {
 
             function nativeJson(url){
                 return Promise.resolve().then(function(){
-                    if(!window.AndBridge||typeof AndBridge.nFetch!=='function') throw new Error('Native bridge unavailable');
-                    var raw=AndBridge.nFetch(url,JSON.stringify({method:'GET',headers:{Accept:'application/json'}}));
-                    var response=JSON.parse(raw);
-                    if(!response||response.status<200||response.status>=300) throw new Error('HTTP '+(response?response.status:0));
-                    return JSON.parse(response.body||'{}');
+                    if(!window.AndBridge||typeof AndBridge.neteaseFetch!=='function') throw new Error('Native bridge unavailable');
+                    return AndBridge.neteaseFetch(url);
+                }).then(function(raw){
+                    return JSON.parse(raw||'{}');
                 });
             }
 
