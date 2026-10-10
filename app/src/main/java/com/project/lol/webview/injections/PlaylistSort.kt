@@ -414,6 +414,13 @@ object PlaylistSort {
                 if (state && state.field === field && state.order === 'DESC') { clearSort(); return; }
                 setSort(field, 'ASC');
             }
+            function sortAvailable(){
+                if (!enabled() || !currentUri()) return false;
+                for (var i = 0; i < SORT_FIELDS.length; i++) {
+                    if (fieldSupported(SORT_FIELDS[i][0])) return true;
+                }
+                return false;
+            }
             function refresh(){
                 afterSortChange();
             }
@@ -428,6 +435,7 @@ object PlaylistSort {
                 set: setSort,
                 clear: clearSort,
                 cycle: toggleField,
+                available: sortAvailable,
                 refresh: refresh
             };
 

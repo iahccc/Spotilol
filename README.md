@@ -35,7 +35,7 @@
 </p>
 
 <p align="center">
-  an Android app that wraps Spotify's web player with built-in adblocking — no root, no shady mods, just your Spotify account on a slick WebView.
+  an Android app that wraps Spotify's web player with built-in adblocking. no root, no shady mods, just your Spotify account on a slick WebView.
 </p>
 
 <p align="center">
@@ -70,53 +70,33 @@ download the `.apk` and install it on your device. you may need to toggle **"Ins
 
 ## Features
 
-- blocks audio ads & telemetry
-- media notification: play/pause, skip, seek, like/unlike, shuffle, repeat with custom actions
-- **Android Auto**: browse your playlists, albums, artists, and podcasts; search and play from the car dashboard
-- **offline downloads**: download songs and play them offline — audio is sourced via the InnerTube API
-- lock screen, Bluetooth, and Wear OS controls
-- autoplay modes: off, once at start, or permanent
-- mobile-friendly CSS/JS layout tweaks
-- AMOLED dark mode (pure black)
-- sleep timer
-- update checker (auto & manual)
-- multiple account profiles
-- browse your library through Spotify's pathfinder API
-- picture-in-picture (PiP) support
-- wake lock controls & power save mode
+- blocks audio ads, trackers and telemetry
+- media notification with play, pause, skip, seek, like, shuffle and repeat
+- lock screen, Bluetooth and headset controls
+- home screen widgets for the player and album art
+- Android Auto: browse and search your library from the car
+- offline downloads via the InnerTube API, with tags and cover art
+- multiple account profiles and a sleep timer
+- lyrics with five styles and a picture in picture view
+- AMOLED dark mode, Material You and accent color themes
+- custom CSS, canvas and video podcasts
+- mobile layout tweaks and playlist sorting
+- wake lock and power save mode
+- automatic and manual update checker
 
 ---
 
 ## Requirements
 
 - Android 9.0+ (API 28)
-- a Spotify account (free or premium)
+- a Spotify account
 - Google Chrome / WebView (comes with your phone)
 
 ---
 
 ## Quick Start
 
-install the APK, open it, done. Spotilol runs in **normal mode** by default — no certificate, no setup, no "Certificate Required" screen. it just works out of the box.
-
----
-
-## Proxy MITM Mode (optional)
-
-want the full fingerprint treatment? flip the mode in **Settings → Connection Mode → "MITM Proxy (Certificate)"**. the app restarts and walks you through the cert install.
-
-### The Certificate Thing
-
-Spotilol generates a local CA cert to rewrite request headers; this does not guarantee that Spotify cannot detect the WebView. it lives on your device, stays on your device.
-
-1. open Spotilol in proxy mode — you'll see the **"Certificate Required"** screen
-2. tap **"Export .pem"** to save it to your Downloads
-3. go to **Settings > Security > Encryption & Credentials > Install a certificate > CA certificate**
-4. find `spotilol_ca.pem` in your Downloads and tap it
-5. it'll warn you about network monitoring — tap **"Install anyway"**
-6. come back to Spotilol and tap **"Check"**. if it worked, you're in.
-
-> **Note:** if you ever clear your device's credential storage (like after a factory reset), you'll have to do this again.
+install the APK, open it, done. no setup, no certificates, no fuss. it just works out of the box.
 
 ---
 
@@ -142,7 +122,7 @@ this project uses Firebase (analytics, crash reporting, performance). to build, 
 
 ## Contributing
 
-contributions are welcome. open issues, throw PRs, suggest stuff — free for all.
+contributions are welcome. open issues, throw PRs, suggest stuff. free for all.
 
 ---
 
@@ -150,4 +130,4 @@ contributions are welcome. open issues, throw PRs, suggest stuff — free for al
 
 **deviato** reverse-engineered the original Spotifuck. **lyssadev** ported the core logic from smali to Kotlin and maintains this project.
 
-all rights reserved — lyssadev & deviato.
+all rights reserved. lyssadev and deviato.

@@ -24,6 +24,7 @@ import androidx.core.view.WindowCompat
 import com.project.lol.R
 import com.project.lol.profile.ProfileManager
 import com.project.lol.service.OfflineMediaService
+import com.project.lol.timer.SleepTimerManager
 import com.project.lol.ui.screens.OfflineScreen
 import com.project.lol.ui.theme.SpotifyTheme
 
@@ -106,10 +107,6 @@ class OfflineActivity : ComponentActivity() {
                         } else {
                             prefs.edit().putString("PaletteSeed", hex).apply()
                         }
-                    },
-                    onConnectionModeChange = { mode ->
-                        prefs.edit().putString("ConnectionMode", mode).apply()
-                        restartToSplash()
                     },
                     onOfflineModeChange = { enabled ->
                         prefs.edit().putBoolean("OfflineMode", enabled).apply()
@@ -241,6 +238,7 @@ class OfflineActivity : ComponentActivity() {
     }
 
     private fun restartToSplash() {
+        SleepTimerManager.cancel()
         startActivity(
             Intent(this, SplashActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

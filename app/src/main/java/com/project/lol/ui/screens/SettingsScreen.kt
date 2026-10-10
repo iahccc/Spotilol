@@ -107,7 +107,6 @@ import com.project.lol.offline.DownloadFolder
 import com.project.lol.offline.DownloadFormat
 import com.project.lol.offline.DownloadPrefs
 import com.project.lol.profile.ProfileManager
-import com.project.lol.proxy.LocalProxyManager
 import com.project.lol.service.MediaNotificationService
 import com.project.lol.ui.components.ChangelogDialog
 import com.project.lol.ui.theme.SpotifyTheme
@@ -220,7 +219,6 @@ fun SettingsContent(
     onKeepScreenOnChange: (Boolean) -> Unit,
     paletteSeed: String?,
     onPaletteSeedChange: (String?) -> Unit,
-    onConnectionModeChange: (String) -> Unit,
     onOfflineModeChange: (Boolean) -> Unit,
     onSaveProfile: (String, String) -> Unit,
     onLoadProfile: (String) -> Unit,
@@ -235,7 +233,8 @@ fun SettingsContent(
     var takeControl by remember { mutableStateOf(prefs.getBoolean("TakeControl", true)) }
     var andAuto by remember { mutableStateOf(prefs.getBoolean("AndAuto", true)) }
     var closeNowPlay by remember { mutableStateOf(prefs.getBoolean("CloseNowPlay", true)) }
-    var guiMode by remember { mutableStateOf(prefs.getString("GuiMode", "csshack") ?: "csshack") }
+    // dead code: gui mode is fixed to mobile css and js, see the appearance section
+    // var guiMode by remember { mutableStateOf(prefs.getString("GuiMode", "csshack") ?: "csshack") }
     var customCss by remember { mutableStateOf(prefs.getString("CustomCss", "") ?: "") }
     var amoledTheme by remember { mutableStateOf(amoledThemeState) }
     var swipeStop by remember { mutableStateOf(prefs.getBoolean("SwipeStop", true)) }
@@ -243,7 +242,6 @@ fun SettingsContent(
     var btAutoResume by remember { mutableStateOf(prefs.getBoolean("BtAutoResume", false)) }
     var hpAutoResume by remember { mutableStateOf(prefs.getBoolean("HpAutoResume", false)) }
     var playerMode by remember { mutableStateOf(prefs.getString("PlayerMode", "spotilol") ?: "spotilol") }
-    var connectionMode by remember { mutableStateOf(prefs.getString("ConnectionMode", "normal") ?: "normal") }
     var offlineMode by remember { mutableStateOf(prefs.getBoolean("OfflineMode", false)) }
     var blockSW by remember { mutableStateOf(blockServiceWorker) }
     var hideEmptyPlayer by remember { mutableStateOf(prefs.getBoolean("HideEmptyPlayer", false)) }
@@ -259,7 +257,6 @@ fun SettingsContent(
     val resources = LocalResources.current
     var profiles by remember { mutableStateOf(ProfileManager.getProfiles(context)) }
 
-    var showConnectionModeDialog by remember { mutableStateOf(false) }
     var showSaveAccountDialog by remember { mutableStateOf(false) }
     var pendingCookies by remember { mutableStateOf<String?>(null) }
     var accountNameInput by remember { mutableStateOf("") }
@@ -267,7 +264,8 @@ fun SettingsContent(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showAutoPlayDialog by remember { mutableStateOf(false) }
     var showPlayerModeDialog by remember { mutableStateOf(false) }
-    var showGuiModeDialog by remember { mutableStateOf(false) }
+    // dead code: the gui mode selector was removed, keep the flag for the wide window refactor
+    // var showGuiModeDialog by remember { mutableStateOf(false) }
     var showCustomCssDialog by remember { mutableStateOf(false) }
     var showPaletteDialog by remember { mutableStateOf(false) }
     var showChangelogDialog by remember { mutableStateOf(false) }
@@ -389,17 +387,20 @@ fun SettingsContent(
                     title = stringResource(R.string.settings_section_appearance),
                     icon = TablerIcons.Palette
                 ) {
-                    val guiLabel = when (guiMode) {
-                        "csshack" -> stringResource(R.string.settings_gui_mode_css_js)
-                        "bigwindow" -> stringResource(R.string.settings_gui_mode_wide)
-                        "none" -> stringResource(R.string.settings_gui_mode_none)
-                        else -> stringResource(R.string.settings_gui_mode_css_js)
-                    }
+                    // dead code: gui mode selector. only mobile css and js is implemented,
+                    // wide window and none need a refactor across the webview injections,
+                    // so the value is fixed and the label is no longer read from prefs.
+                    // val guiLabel = when (guiMode) {
+                    //     "csshack" -> stringResource(R.string.settings_gui_mode_css_js)
+                    //     "bigwindow" -> stringResource(R.string.settings_gui_mode_wide)
+                    //     "none" -> stringResource(R.string.settings_gui_mode_none)
+                    //     else -> stringResource(R.string.settings_gui_mode_css_js)
+                    // }
                     SettingTile(
                         title = stringResource(R.string.settings_gui_hack_mode),
-                        subtitle = guiLabel,
+                        subtitle = stringResource(R.string.settings_gui_mode_css_js),
                         icon = TablerIcons.Palette,
-                        onClick = { showGuiModeDialog = true }
+                        info = stringResource(R.string.settings_gui_hack_mode_info)
                     )
 
                     HorizontalDivider(modifier = Modifier.padding(start = 44.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
@@ -814,23 +815,6 @@ fun SettingsContent(
 
             if (settingsTab == SettingsTab.Advanced) {
                 SettingSectionCard(
-                    title = stringResource(R.string.settings_section_connection_mode),
-                    icon = TablerIcons.Shield
-                ) {
-                    val modeLabel = if (connectionMode == "proxy") {
-                        stringResource(R.string.settings_connection_proxy)
-                    } else {
-                        stringResource(R.string.settings_connection_normal)
-                    }
-                    SettingTile(
-                        title = stringResource(R.string.settings_connection_mode),
-                        subtitle = stringResource(R.string.settings_connection_mode_subtitle, modeLabel),
-                        icon = TablerIcons.Shield,
-                        onClick = { showConnectionModeDialog = true }
-                    )
-                }
-
-                SettingSectionCard(
                     title = stringResource(R.string.settings_section_system),
                     icon = TablerIcons.Power
                 ) {
@@ -903,23 +887,6 @@ fun SettingsContent(
                             Telemetry.setEnabled(context, enabled)
                         }
                     )
-                }
-
-                if (connectionMode == "proxy") {
-                    SettingSectionCard(
-                        title = stringResource(R.string.settings_section_security_network),
-                        icon = TablerIcons.Shield
-                    ) {
-                        SettingTile(
-                            title = stringResource(R.string.settings_ca_certificate),
-                            subtitle = stringResource(R.string.settings_ca_certificate_subtitle),
-                            icon = TablerIcons.Shield,
-                            onClick = {
-                                val path = LocalProxyManager.exportCACert(context)
-                                Toast.makeText(context, resources.getString(R.string.settings_cert_exported, path), Toast.LENGTH_LONG).show()
-                            }
-                        )
-                    }
                 }
             }
 
@@ -1088,22 +1055,6 @@ fun SettingsContent(
         )
     }
 
-    if (showConnectionModeDialog) {
-        SingleChoiceDialog(
-            title = stringResource(R.string.settings_connection_mode),
-            options = listOf(
-                "normal" to stringResource(R.string.settings_connection_normal),
-                "proxy" to stringResource(R.string.settings_connection_proxy)
-            ),
-            selected = connectionMode,
-            onSelect = { value ->
-                connectionMode = value
-                onConnectionModeChange(value)
-            },
-            onDismiss = { showConnectionModeDialog = false }
-        )
-    }
-
     if (showAutoPlayDialog) {
         SingleChoiceDialog(
             title = stringResource(R.string.settings_autoplay_mode),
@@ -1185,22 +1136,24 @@ fun SettingsContent(
         )
     }
 
-    if (showGuiModeDialog) {
-        SingleChoiceDialog(
-            title = stringResource(R.string.settings_gui_hack_mode),
-            options = listOf(
-                "csshack" to stringResource(R.string.settings_gui_mode_css_js),
-                "bigwindow" to stringResource(R.string.settings_gui_mode_wide),
-                "none" to stringResource(R.string.settings_gui_mode_none)
-            ),
-            selected = guiMode,
-            onSelect = { value ->
-                guiMode = value
-                prefs.edit().putString("GuiMode", value).apply()
-            },
-            onDismiss = { showGuiModeDialog = false }
-        )
-    }
+    // dead code: gui mode selector dialog. wide window and none were never implemented,
+    // the webview is always injected with the mobile css and js hack.
+    // if (showGuiModeDialog) {
+    //     SingleChoiceDialog(
+    //         title = stringResource(R.string.settings_gui_hack_mode),
+    //         options = listOf(
+    //             "csshack" to stringResource(R.string.settings_gui_mode_css_js),
+    //             "bigwindow" to stringResource(R.string.settings_gui_mode_wide),
+    //             "none" to stringResource(R.string.settings_gui_mode_none)
+    //         ),
+    //         selected = guiMode,
+    //         onSelect = { value ->
+    //             guiMode = value
+    //             prefs.edit().putString("GuiMode", value).apply()
+    //         },
+    //         onDismiss = { showGuiModeDialog = false }
+    //     )
+    // }
 
     if (showCustomCssDialog) {
         CustomCssDialog(
@@ -1534,19 +1487,26 @@ fun SettingTile(
     subtitle: String,
     icon: ImageVector? = null,
     painter: Painter? = null,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     isDestructive: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    info: String? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (enabled) Modifier else Modifier.alpha(0.38f))
-            .combinedClickable(
-                enabled = enabled,
-                onClick = onClick,
-                onLongClick = onLongClick
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        enabled = enabled,
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick
+                    )
+                } else {
+                    Modifier
+                }
             )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1573,14 +1533,21 @@ fun SettingTile(
         }
         if (painter != null || icon != null) Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (info != null) {
+                    Spacer(Modifier.width(6.dp))
+                    InfoTooltip(text = info)
+                }
+            }
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -1589,13 +1556,15 @@ fun SettingTile(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.width(8.dp))
-        Icon(
-            imageVector = TablerIcons.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(16.dp)
-        )
+        if (onClick != null) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                imageVector = TablerIcons.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
@@ -1976,7 +1945,6 @@ fun SettingsContentPreview() {
             onKeepScreenOnChange = {},
             paletteSeed = null,
             onPaletteSeedChange = {},
-            onConnectionModeChange = {},
             onOfflineModeChange = {},
             onSaveProfile = { _, _ -> },
             onLoadProfile = {},

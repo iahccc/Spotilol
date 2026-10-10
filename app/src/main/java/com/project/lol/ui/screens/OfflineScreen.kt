@@ -5,15 +5,23 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -22,6 +30,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -57,6 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import com.project.lol.searchEngine.GenericSearchEngine
 import com.project.lol.searchEngine.SearchableFieldExtractor
+import com.project.lol.util.Logger
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -76,9 +86,13 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -100,14 +114,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.core.content.ContextCompat
 import com.project.lol.R
+import com.project.lol.offline.DownloadFolder
 import com.project.lol.offline.OfflineSong
 import com.project.lol.offline.OfflineStore
 import com.project.lol.service.OfflineMediaService
+import com.project.lol.timer.AppQuit
+import com.project.lol.timer.SleepTimerAction
+import com.project.lol.timer.SleepTimerManager
 import com.project.lol.ui.components.SettingsDialog
+import com.project.lol.ui.components.SleepTimerDialog
+import com.project.lol.ui.theme.schemeFromSeed
 import com.project.lol.util.BuildInfo
 import compose.icons.TablerIcons
 import compose.icons.tablericons.ChevronDown
 import compose.icons.tablericons.CloudOff
+import compose.icons.tablericons.Folder
 import compose.icons.tablericons.Logout
 import compose.icons.tablericons.Menu2
 import compose.icons.tablericons.Music
@@ -130,6 +151,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
+private enum class RepeatMode { OFF, ALL, ONE }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OfflineScreen(
@@ -147,7 +170,6 @@ fun OfflineScreen(
     onKeepScreenOnChange: (Boolean) -> Unit,
     paletteSeed: String?,
     onPaletteSeedChange: (String?) -> Unit,
-    onConnectionModeChange: (String) -> Unit,
     onOfflineModeChange: (Boolean) -> Unit,
     onSaveProfile: (String, String) -> Unit,
     onLoadProfile: (String) -> Unit,
@@ -181,9 +203,15 @@ fun OfflineScreen(
     var shuffleOn by remember { mutableStateOf(false) }
     var shuffleOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     var shufflePos by remember { mutableIntStateOf(-1) }
+    var repeatMode by remember { mutableStateOf(RepeatMode.OFF) }
     var playerExpanded by remember { mutableStateOf(false) }
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var sleepTimerInput by remember { mutableStateOf("") }
+    var sleepTimerState by remember { mutableStateOf(SleepTimerManager.state()) }
 
     val mediaPlayer = remember { MediaPlayer() }
+    val audioFocus = remember { OfflineAudioFocus(context) }
+    var resumeAfterFocus by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchFocused by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf<List<OfflineSong>?>(null) }
@@ -232,7 +260,24 @@ fun OfflineScreen(
         }
     }
 
+    fun handleSleepTimerExpire() {
+        when (SleepTimerManager.action) {
+            SleepTimerAction.PAUSE -> {
+                runCatching {
+                    if (mediaPlayer.isPlaying) mediaPlayer.pause()
+                }
+                isPlaying = false
+                positionMs = runCatching { mediaPlayer.currentPosition }.getOrDefault(positionMs)
+                syncService()
+                OfflineMediaService.instance?.updatePlaying(false, positionMs.toLong())
+            }
+
+            SleepTimerAction.QUIT -> AppQuit.quit(context)
+        }
+    }
+
     fun play(index: Int) {
+        audioFocus.acquire()
         playAt(mediaPlayer, context, songs, index, { currentIndex = it }, { playerSong = it }, { isPlaying = it }, { durationMs = it }, { positionMs = it })
         if (shuffleOn) {
             val key = songs.getOrNull(index)?.let { songKey(it) }
@@ -248,11 +293,41 @@ fun OfflineScreen(
                 mediaPlayer.pause()
                 isPlaying = false
             } else if (durationMs > 0) {
+                audioFocus.acquire()
                 mediaPlayer.start()
                 isPlaying = true
             }
         }
         syncService()
+    }
+
+    DisposableEffect(audioFocus) {
+        audioFocus.onSuspend = {
+            resumeAfterFocus = isPlaying
+            if (isPlaying) {
+                runCatching { mediaPlayer.pause() }
+                isPlaying = false
+                syncService()
+            }
+        }
+        audioFocus.onResume = {
+            if (resumeAfterFocus) {
+                resumeAfterFocus = false
+                runCatching {
+                    if (durationMs > 0) {
+                        mediaPlayer.start()
+                        isPlaying = true
+                    }
+                }
+                syncService()
+            }
+        }
+        onDispose {
+            audioFocus.onSuspend = null
+            audioFocus.onResume = null
+            resumeAfterFocus = false
+            audioFocus.abandon()
+        }
     }
 
     fun ensureShuffleOrder() {
@@ -272,6 +347,14 @@ fun OfflineScreen(
             shuffleOrder = emptyList()
             shufflePos = -1
             ensureShuffleOrder()
+        }
+    }
+
+    fun cycleRepeat() {
+        repeatMode = when (repeatMode) {
+            RepeatMode.OFF -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.OFF
         }
     }
 
@@ -306,6 +389,8 @@ fun OfflineScreen(
             if (mediaPlayer.isPlaying) mediaPlayer.pause()
             mediaPlayer.reset()
         }
+        audioFocus.abandon()
+        resumeAfterFocus = false
         isPlaying = false
         currentIndex = -1
         positionMs = 0
@@ -396,26 +481,53 @@ fun OfflineScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        SleepTimerManager.loadAction(context)
+        val releaseHost = SleepTimerManager.registerHost(
+            stateChange = { sleepTimerState = SleepTimerManager.state() },
+            expire = { handleSleepTimerExpire() }
+        )
+        onDispose { releaseHost() }
+    }
+
     DisposableEffect(mediaPlayer) {
         mediaPlayer.setOnCompletionListener {
-            if (shuffleOn) {
+            if (SleepTimerManager.isEndOfSongArmed) {
+                SleepTimerManager.onTrackCompleted()
+                return@setOnCompletionListener
+            }
+            if (repeatMode == RepeatMode.ONE && currentIndex in songs.indices) {
+                play(currentIndex)
+                return@setOnCompletionListener
+            }
+            val advanced = if (shuffleOn) {
                 ensureShuffleOrder()
                 if (shufflePos in 0 until shuffleOrder.size - 1) {
                     step(1)
+                    true
+                } else if (repeatMode == RepeatMode.ALL && shuffleOrder.isNotEmpty()) {
+                    shufflePos = -1
+                    step(1)
+                    true
                 } else {
-                    isPlaying = false
-                    positionMs = 0
-                    OfflineMediaService.instance?.updatePlaying(false, 0)
+                    false
                 }
             } else {
                 val index = currentIndex
                 if (index in 0 until songs.lastIndex) {
                     play(index + 1)
+                    true
+                } else if (repeatMode == RepeatMode.ALL && songs.isNotEmpty()) {
+                    play(0)
+                    true
                 } else {
-                    isPlaying = false
-                    positionMs = 0
-                    OfflineMediaService.instance?.updatePlaying(false, 0)
+                    false
                 }
+            }
+            if (!advanced) {
+                isPlaying = false
+                positionMs = 0
+                OfflineMediaService.instance?.updatePlaying(false, 0)
             }
         }
         onDispose { }
@@ -458,7 +570,6 @@ fun OfflineScreen(
         onKeepScreenOnChange = onKeepScreenOnChange,
         paletteSeed = paletteSeed,
         onPaletteSeedChange = onPaletteSeedChange,
-        onConnectionModeChange = onConnectionModeChange,
         onOfflineModeChange = onOfflineModeChange,
         onSaveProfile = onSaveProfile,
         onLoadProfile = onLoadProfile,
@@ -502,6 +613,14 @@ fun OfflineScreen(
                             }
                         },
                         actions = {
+                            IconButton(onClick = { showSleepTimerDialog = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_timer),
+                                    contentDescription = stringResource(R.string.timer_desc_open),
+                                    tint = if (sleepTimerState.active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                             IconButton(onClick = onExit) {
                                 Icon(
                                     imageVector = TablerIcons.Logout,
@@ -666,6 +785,11 @@ fun OfflineScreen(
                                             play(index)
                                         }
                                     },
+                                    onLocate = {
+                                        if (!DownloadFolder.openTrack(context, song.uri)) {
+                                            Toast.makeText(context, song.uri.lastPathSegment ?: song.title, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
                                     onDelete = { pendingDelete = song }
                                 )
                             }
@@ -698,6 +822,8 @@ fun OfflineScreen(
                             onClose = { stopAndClear() },
                             shuffleOn = shuffleOn,
                             onToggleShuffle = { toggleShuffle() },
+                            repeatMode = repeatMode,
+                            onCycleRepeat = { cycleRepeat() },
                             onExpand = { playerExpanded = true }
                         )
                     }
@@ -707,8 +833,22 @@ fun OfflineScreen(
                 AnimatedVisibility(
                     visible = playerExpanded && expandedSong != null,
                     modifier = Modifier.fillMaxSize(),
-                    enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(260)) + fadeIn(tween(260)),
-                    exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)) + fadeOut(tween(200))
+                    enter = slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)
+                    ) + fadeIn(tween(240)) + scaleIn(
+                        initialScale = 0.92f,
+                        transformOrigin = TransformOrigin(0.5f, 1f),
+                        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)
+                    ),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(220)
+                    ) + fadeOut(tween(180)) + scaleOut(
+                        targetScale = 0.94f,
+                        transformOrigin = TransformOrigin(0.5f, 1f),
+                        animationSpec = tween(220)
+                    )
                 ) {
                     if (expandedSong != null) {
                         FullScreenPlayer(
@@ -732,6 +872,8 @@ fun OfflineScreen(
                             },
                             shuffleOn = shuffleOn,
                             onToggleShuffle = { toggleShuffle() },
+                            repeatMode = repeatMode,
+                            onCycleRepeat = { cycleRepeat() },
                             onEnterPip = onEnterPip
                         )
                     }
@@ -918,6 +1060,28 @@ fun OfflineScreen(
             }
         )
     }
+
+    if (showSleepTimerDialog) {
+        SleepTimerDialog(
+            state = sleepTimerState,
+            inputText = sleepTimerInput,
+            onInputChange = { sleepTimerInput = it },
+            onStartCountdown = { minutes ->
+                showSleepTimerDialog = false
+                SleepTimerManager.startCountdown(minutes)
+            },
+            onStartEndOfSong = {
+                showSleepTimerDialog = false
+                SleepTimerManager.startEndOfSong()
+            },
+            onActionChange = { SleepTimerManager.setAction(context, it) },
+            onCancelTimer = {
+                showSleepTimerDialog = false
+                SleepTimerManager.cancel()
+            },
+            onDismiss = { showSleepTimerDialog = false }
+        )
+    }
 }
             }
         }
@@ -947,6 +1111,75 @@ private fun playAt(
         setPosition(0)
     }.onFailure {
         setPlaying(false)
+    }
+}
+
+private class OfflineAudioFocus(context: Context) {
+    private companion object {
+        const val TAG = "offline.focus"
+    }
+
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val handler = Handler(Looper.getMainLooper())
+    private var request: AudioFocusRequest? = null
+    private var held = false
+    private var suspended = false
+
+    var onSuspend: (() -> Unit)? = null
+    var onResume: (() -> Unit)? = null
+
+    private val listener = AudioManager.OnAudioFocusChangeListener { change ->
+        val name = when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> "gain"
+            AudioManager.AUDIOFOCUS_LOSS -> "loss"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "loss transient"
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "loss transient can duck"
+            else -> "unknown $change"
+        }
+        Logger.i(TAG, "focus change: $name")
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> if (suspended) {
+                suspended = false
+                onResume?.invoke()
+            }
+
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                suspended = true
+                onSuspend?.invoke()
+            }
+
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                suspended = false
+                abandon()
+                onSuspend?.invoke()
+            }
+        }
+    }
+
+    fun acquire(): Boolean {
+        if (held) return true
+        val req = request ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener(listener, handler)
+            .build()
+            .also { request = it }
+        held = audioManager.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        Logger.i(TAG, "focus acquire: granted=$held")
+        return held
+    }
+
+    fun abandon() {
+        if (!held && request == null) return
+        Logger.i(TAG, "focus abandon: held=$held")
+        held = false
+        val req = request ?: return
+        runCatching { audioManager.abandonAudioFocusRequest(req) }
     }
 }
 
@@ -1184,6 +1417,7 @@ private fun OfflineSongRow(
     song: OfflineSong,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    onLocate: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -1221,6 +1455,14 @@ private fun OfflineSongRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
+        CompactIconButton(
+            icon = TablerIcons.Folder,
+            contentDescription = stringResource(R.string.offline_desc_locate_track),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            onClick = onLocate,
+            boxSize = 30.dp,
+            iconSize = 17.dp
+        )
         CompactIconButton(
             icon = TablerIcons.Trash,
             contentDescription = stringResource(R.string.offline_desc_delete),
@@ -1305,6 +1547,85 @@ private fun decodeCover(context: android.content.Context, song: OfflineSong): Bi
     }.getOrNull()
 }
 
+private fun extractSeedColor(bitmap: Bitmap): Color? {
+    val sample = 32
+    val scaled = Bitmap.createScaledBitmap(bitmap, sample, sample, false)
+    val pixels = IntArray(sample * sample)
+    scaled.getPixels(pixels, 0, sample, 0, 0, sample, sample)
+    if (scaled !== bitmap) scaled.recycle()
+
+    var allR = 0L
+    var allG = 0L
+    var allB = 0L
+    var allN = 0
+    var vividR = 0L
+    var vividG = 0L
+    var vividB = 0L
+    var vividN = 0
+    for (pixel in pixels) {
+        if (android.graphics.Color.alpha(pixel) < 200) continue
+        val r = android.graphics.Color.red(pixel)
+        val g = android.graphics.Color.green(pixel)
+        val b = android.graphics.Color.blue(pixel)
+        allR += r
+        allG += g
+        allB += b
+        allN++
+        val max = maxOf(r, g, b)
+        val min = minOf(r, g, b)
+        val saturation = if (max == 0) 0f else (max - min).toFloat() / max
+        if (saturation > 0.28f && max > 70 && min < 230) {
+            vividR += r
+            vividG += g
+            vividB += b
+            vividN++
+        }
+    }
+    if (allN == 0) return null
+    return if (vividN > 0) {
+        Color(
+            android.graphics.Color.rgb(
+                (vividR / vividN).toInt(),
+                (vividG / vividN).toInt(),
+                (vividB / vividN).toInt()
+            )
+        )
+    } else {
+        Color(
+            android.graphics.Color.rgb(
+                (allR / allN).toInt(),
+                (allG / allN).toInt(),
+                (allB / allN).toInt()
+            )
+        )
+    }
+}
+
+@Composable
+private fun coverBackgroundBrush(seed: Color?): Brush {
+    val base = MaterialTheme.colorScheme.background
+    if (seed == null) return Brush.verticalGradient(listOf(base, base))
+    return Brush.verticalGradient(
+        listOf(
+            lerp(base, seed, 0.55f),
+            lerp(base, seed, 0.14f),
+            base
+        )
+    )
+}
+
+private fun repeatIcon(mode: RepeatMode): Int = when (mode) {
+    RepeatMode.OFF -> R.drawable.ic_repeat_off
+    RepeatMode.ALL -> R.drawable.ic_repeat
+    RepeatMode.ONE -> R.drawable.ic_repeat_one
+}
+
+private fun repeatDescription(mode: RepeatMode): Int = when (mode) {
+    RepeatMode.OFF -> R.string.offline_desc_repeat_off
+    RepeatMode.ALL -> R.string.offline_desc_repeat_all
+    RepeatMode.ONE -> R.string.offline_desc_repeat_one
+}
+
 @Composable
 private fun NowPlayingBar(
     song: OfflineSong,
@@ -1320,15 +1641,33 @@ private fun NowPlayingBar(
     onExpand: () -> Unit,
     onClose: () -> Unit,
     shuffleOn: Boolean,
-    onToggleShuffle: () -> Unit
+    onToggleShuffle: () -> Unit,
+    repeatMode: RepeatMode,
+    onCycleRepeat: () -> Unit
 ) {
     val scrubbing = scrubMs >= 0
     val shownPosition = if (scrubbing) scrubMs else positionMs
+    val density = LocalDensity.current
+    val expandThreshold = with(density) { 56.dp.toPx() }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp)
+            .graphicsLayer { translationY = dragOffset }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragOffset < -expandThreshold) onExpand()
+                        dragOffset = 0f
+                    },
+                    onDragCancel = { dragOffset = 0f },
+                    onVerticalDrag = { _, amount ->
+                        dragOffset = (dragOffset + amount).coerceIn(-size.height * 0.6f, 0f)
+                    }
+                )
+            },
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.97f),
         tonalElevation = 4.dp,
@@ -1340,7 +1679,6 @@ private fun NowPlayingBar(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(onClick = onExpand)
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1394,6 +1732,14 @@ private fun NowPlayingBar(
                     iconSize = 17.dp
                 )
                 CompactIconButton(
+                    painter = painterResource(repeatIcon(repeatMode)),
+                    contentDescription = stringResource(repeatDescription(repeatMode)),
+                    tint = if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                    onClick = onCycleRepeat,
+                    boxSize = 30.dp,
+                    iconSize = 16.dp
+                )
+                CompactIconButton(
                     icon = TablerIcons.X,
                     contentDescription = stringResource(R.string.offline_desc_close_player),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1443,9 +1789,12 @@ private fun FullScreenPlayer(
     onClose: () -> Unit,
     shuffleOn: Boolean,
     onToggleShuffle: () -> Unit,
+    repeatMode: RepeatMode,
+    onCycleRepeat: () -> Unit,
     onEnterPip: () -> Unit
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -1464,13 +1813,20 @@ private fun FullScreenPlayer(
         }
     }
 
+    var coverSeed by remember(song.id, song.uri) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(song.id, song.uri) {
+        val bitmap = withContext(Dispatchers.IO) { decodeCover(context, song) }
+        coverSeed = bitmap?.let { extractSeedColor(it) }
+    }
+    val coverScheme = coverSeed?.let { remember(it) { schemeFromSeed(it) } }
+
+    val collapseThreshold = with(density) { 84.dp.toPx() }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+
     val scrubbing = scrubMs >= 0
     val shownPosition = if (scrubbing) scrubMs else positionMs
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    val body: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1498,6 +1854,14 @@ private fun FullScreenPlayer(
                     maxLines = 1
                 )
                 Spacer(Modifier.weight(1f))
+                CompactIconButton(
+                    icon = TablerIcons.PictureInPicture,
+                    contentDescription = stringResource(R.string.offline_desc_enter_pip),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onEnterPip,
+                    boxSize = 40.dp,
+                    iconSize = 18.dp
+                )
                 CompactIconButton(
                     icon = TablerIcons.X,
                     contentDescription = stringResource(R.string.offline_desc_close_player),
@@ -1611,10 +1975,10 @@ private fun FullScreenPlayer(
                     iconSize = 30.dp
                 )
                 CompactIconButton(
-                    icon = TablerIcons.PictureInPicture,
-                    contentDescription = stringResource(R.string.offline_desc_enter_pip),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = onEnterPip,
+                    painter = painterResource(repeatIcon(repeatMode)),
+                    contentDescription = stringResource(repeatDescription(repeatMode)),
+                    tint = if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                    onClick = onCycleRepeat,
                     boxSize = 44.dp,
                     iconSize = 20.dp
                 )
@@ -1644,6 +2008,32 @@ private fun FullScreenPlayer(
                     modifier = Modifier.weight(1f)
                 )
             }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { translationY = dragOffset }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragOffset > collapseThreshold) onCollapse()
+                        dragOffset = 0f
+                    },
+                    onDragCancel = { dragOffset = 0f },
+                    onVerticalDrag = { _, amount ->
+                        dragOffset = (dragOffset + amount).coerceIn(0f, size.height * 0.7f)
+                    }
+                )
+            }
+            .background(coverBackgroundBrush(coverSeed))
+    ) {
+        val scheme = coverScheme
+        if (scheme != null) {
+            MaterialTheme(colorScheme = scheme) { body() }
+        } else {
+            body()
         }
     }
 }

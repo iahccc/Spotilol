@@ -128,4 +128,13 @@ object DownloadFolder {
 
     private fun treeDocumentId(treeUri: Uri): String =
         runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrDefault("")
+
+    fun openTrack(context: Context, uri: Uri): Boolean {
+        val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull() ?: "audio/*"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return runCatching { context.startActivity(intent) }.isSuccess
+    }
 }
