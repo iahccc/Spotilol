@@ -270,6 +270,25 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             .callTimeout(15, TimeUnit.SECONDS).build()
     }
 
+    fun neteaseFetch(url: String): String {
+        return try {
+            require(WebSecurityPolicy.isNeteaseLyrics(url)) { "Untrusted Netease lyrics target" }
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", DESKTOP_UA)
+                .header("Accept", "application/json")
+                .build()
+            fetchClient.newCall(request).execute().use { response ->
+                require(response.isSuccessful) { "Netease lyrics HTTP ${response.code}" }
+                response.body.byteStream().use { BoundedInput.readUtf8(it, 4_194_304) }
+            }
+        } catch (_: Exception) {
+            Logger.w(TAG, "Netease lyrics request rejected or failed")
+            "{}"
+        }
+    }
+
     fun nFetch(url: String, optsJson: String?): String {
         return try {
             require(WebSecurityPolicy.isNativeFetch(url)) { "Untrusted native request target" }

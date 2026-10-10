@@ -34,12 +34,14 @@ class OriginScopedBridge private constructor(private val view: WebView, private 
             val method = request.optString("method")
             if (!WebSecurityPolicy.isBridgeCall(origin.toString(), mainFrame, method)) return@addWebMessageListener
             val args = request.optJSONArray("args") ?: return@addWebMessageListener
-            if (method == "nFetch" || method == "spicyLyrics") {
+            if (method == "nFetch" || method == "neteaseFetch" || method == "spicyLyrics") {
                 try {
                     workers.execute {
                         val result = runCatching {
                             if (method == "nFetch") {
                                 bridge.nFetch(args.getString(0), args.optString(1).takeUnless { args.isNull(1) })
+                            } else if (method == "neteaseFetch") {
+                                bridge.neteaseFetch(args.getString(0))
                             } else {
                                 bridge.spicyLyrics(
                                     args.getString(0),
@@ -102,6 +104,7 @@ class OriginScopedBridge private constructor(private val view: WebView, private 
             "enterLyricsPip" -> bridge.enterLyricsPip()
             "playerExpanded" -> bridge.playerExpanded(a.getBoolean(0))
             "wideVideo" -> bridge.wideVideo(a.getBoolean(0))
+            "setLyricsKeepScreenOn" -> bridge.setLyricsKeepScreenOn(a.getBoolean(0))
             "downloadTrack" -> bridge.downloadTrack(s(0))
             "downloadCollection" -> bridge.downloadCollection(s(0))
             "skipDownload" -> bridge.skipDownload()

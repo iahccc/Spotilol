@@ -36,7 +36,7 @@ object BridgeScript {
         'recAdContentIds','playLoaded','recMediaPosition','recMediaStatus','onMediaItemsLoaded',
         'onSearchCompleted','manageTShut','manageTSleep','recAccountName','openTimerDialog',
         'enterPip','enterPipVideo','enterVideoFullscreen','exitVideoFullscreen','enterLyricsPip',
-        'playerExpanded','wideVideo',
+        'playerExpanded','wideVideo','setLyricsKeepScreenOn',
         'downloadTrack','downloadCollection','skipDownload','cancelDownload'
     ];
     methods.forEach(function(method) {
@@ -45,6 +45,7 @@ object BridgeScript {
     if (origin === 'https://open.spotify.com') {
         bridge.isWoke = function() { return document.visibilityState === 'visible'; };
         bridge.nFetch = function(url, options) { return send('nFetch', [String(url), options || null], true); };
+        bridge.neteaseFetch = function(url) { return send('neteaseFetch', [String(url)], true); };
         bridge.spicyLyrics = function(id, title, artist, duration) {
             return send('spicyLyrics', [String(id), title == null ? null : String(title), artist == null ? null : String(artist), duration | 0], true);
         };
