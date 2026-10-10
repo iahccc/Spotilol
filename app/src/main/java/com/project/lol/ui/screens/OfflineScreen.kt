@@ -55,8 +55,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import com.project.lol.searchEngine.GenericSearchEngine
-import com.project.lol.searchEngine.SearchableFieldExtractor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -84,10 +82,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -102,8 +100,14 @@ import androidx.core.content.ContextCompat
 import com.project.lol.R
 import com.project.lol.offline.OfflineSong
 import com.project.lol.offline.OfflineStore
+import com.project.lol.searchEngine.GenericSearchEngine
+import com.project.lol.searchEngine.SearchableFieldExtractor
 import com.project.lol.service.OfflineMediaService
+import com.project.lol.timer.AppQuit
+import com.project.lol.timer.SleepTimerAction
+import com.project.lol.timer.SleepTimerManager
 import com.project.lol.ui.components.SettingsDialog
+import com.project.lol.ui.components.SleepTimerDialog
 import com.project.lol.util.BuildInfo
 import compose.icons.TablerIcons
 import compose.icons.tablericons.ChevronDown
@@ -123,11 +127,11 @@ import compose.icons.tablericons.Volume
 import compose.icons.tablericons.Volume2
 import compose.icons.tablericons.Volume3
 import compose.icons.tablericons.X
-import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -182,6 +186,9 @@ fun OfflineScreen(
     var shuffleOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     var shufflePos by remember { mutableIntStateOf(-1) }
     var playerExpanded by remember { mutableStateOf(false) }
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var sleepTimerInput by remember { mutableStateOf("") }
+    var sleepTimerState by remember { mutableStateOf(SleepTimerManager.state()) }
 
     val mediaPlayer = remember { MediaPlayer() }
     var searchQuery by remember { mutableStateOf("") }
@@ -229,6 +236,22 @@ fun OfflineScreen(
                     putExtra("shuffle", shuffleOn)
                 }
             )
+        }
+    }
+
+    fun handleSleepTimerExpire() {
+        when (SleepTimerManager.action) {
+            SleepTimerAction.PAUSE -> {
+                runCatching {
+                    if (mediaPlayer.isPlaying) mediaPlayer.pause()
+                }
+                isPlaying = false
+                positionMs = runCatching { mediaPlayer.currentPosition }.getOrDefault(positionMs)
+                syncService()
+                OfflineMediaService.instance?.updatePlaying(false, positionMs.toLong())
+            }
+
+            SleepTimerAction.QUIT -> AppQuit.quit(context)
         }
     }
 
@@ -396,8 +419,21 @@ fun OfflineScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        SleepTimerManager.loadAction(context)
+        val releaseHost = SleepTimerManager.registerHost(
+            stateChange = { sleepTimerState = SleepTimerManager.state() },
+            expire = { handleSleepTimerExpire() }
+        )
+        onDispose { releaseHost() }
+    }
+
     DisposableEffect(mediaPlayer) {
         mediaPlayer.setOnCompletionListener {
+            if (SleepTimerManager.isEndOfSongArmed) {
+                SleepTimerManager.onTrackCompleted()
+                return@setOnCompletionListener
+            }
             if (shuffleOn) {
                 ensureShuffleOrder()
                 if (shufflePos in 0 until shuffleOrder.size - 1) {
@@ -502,6 +538,14 @@ fun OfflineScreen(
                             }
                         },
                         actions = {
+                            IconButton(onClick = { showSleepTimerDialog = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_timer),
+                                    contentDescription = stringResource(R.string.timer_desc_open),
+                                    tint = if (sleepTimerState.active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                             IconButton(onClick = onExit) {
                                 Icon(
                                     imageVector = TablerIcons.Logout,
@@ -825,107 +869,129 @@ fun OfflineScreen(
                                             )
                                             Spacer(Modifier.width(12.dp))
                                             Text(
-                                text = stringResource(R.string.offline_menu_exit_offline_mode),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                                                text = stringResource(R.string.offline_menu_exit_offline_mode),
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
+                val songToDelete = pendingDelete
+                if (songToDelete != null) {
+                    AlertDialog(
+                        onDismissRequest = { pendingDelete = null },
+                        shape = RoundedCornerShape(28.dp),
+                        title = {
+                            Text(
+                                text = stringResource(R.string.offline_dialog_delete_song_title),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Text(
+                    text = stringResource(R.string.offline_dialog_delete_song_message, songToDelete.title, songToDelete.artist.ifBlank { stringResource(R.string.offline_unknown_artist) }),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                pendingDelete = null
+                                performDelete(songToDelete)
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.offline_dialog_delete),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.offline_dialog_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    )
+                }
+
+                if (confirmDeleteAll) {
+                    val total = songs.size
+                    AlertDialog(
+                        onDismissRequest = { confirmDeleteAll = false },
+                        shape = RoundedCornerShape(28.dp),
+                        title = {
+                            Text(
+                                text = stringResource(R.string.offline_dialog_delete_all_title),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = if (total == 1) {
+                                    stringResource(R.string.offline_dialog_delete_all_message_one)
+                                } else {
+                        stringResource(R.string.offline_dialog_delete_all_message_many, total)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmDeleteAll = false
+                                performDeleteAll()
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.offline_dialog_delete_all),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirmDeleteAll = false }) {
+                    Text(stringResource(R.string.offline_dialog_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (showSleepTimerDialog) {
+                SleepTimerDialog(
+                    state = sleepTimerState,
+                    inputText = sleepTimerInput,
+                    onInputChange = { sleepTimerInput = it },
+                    onStartCountdown = { minutes ->
+                        showSleepTimerDialog = false
+                        SleepTimerManager.startCountdown(minutes)
+                    },
+                    onStartEndOfSong = {
+                        showSleepTimerDialog = false
+                        SleepTimerManager.startEndOfSong()
+                    },
+                    onActionChange = { SleepTimerManager.setAction(context, it) },
+                    onCancelTimer = {
+                        showSleepTimerDialog = false
+                        SleepTimerManager.cancel()
+                    },
+                    onDismiss = { showSleepTimerDialog = false }
+                )
             }
         }
-    }
-    }
-
-    val songToDelete = pendingDelete
-    if (songToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            shape = RoundedCornerShape(28.dp),
-            title = {
-                Text(
-                    text = stringResource(R.string.offline_dialog_delete_song_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = stringResource(R.string.offline_dialog_delete_song_message, songToDelete.title, songToDelete.artist.ifBlank { stringResource(R.string.offline_unknown_artist) }),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingDelete = null
-                    performDelete(songToDelete)
-                }) {
-                    Text(
-                        text = stringResource(R.string.offline_dialog_delete),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) {
-                    Text(stringResource(R.string.offline_dialog_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    if (confirmDeleteAll) {
-        val total = songs.size
-        AlertDialog(
-            onDismissRequest = { confirmDeleteAll = false },
-            shape = RoundedCornerShape(28.dp),
-            title = {
-                Text(
-                    text = stringResource(R.string.offline_dialog_delete_all_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = if (total == 1) {
-                        stringResource(R.string.offline_dialog_delete_all_message_one)
-                    } else {
-                        stringResource(R.string.offline_dialog_delete_all_message_many, total)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDeleteAll = false
-                    performDeleteAll()
-                }) {
-                    Text(
-                        text = stringResource(R.string.offline_dialog_delete_all),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDeleteAll = false }) {
-                    Text(stringResource(R.string.offline_dialog_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
     }
 }
-            }
-        }
-    }
 
 private fun playAt(
     mediaPlayer: MediaPlayer,
-    context: android.content.Context,
+    context: Context,
     songs: List<OfflineSong>,
     index: Int,
     setCurrentIndex: (Int) -> Unit,
@@ -1281,7 +1347,7 @@ private fun CoverBox(
     }
 }
 
-private fun decodeCover(context: android.content.Context, song: OfflineSong): Bitmap? {
+private fun decodeCover(context: Context, song: OfflineSong): Bitmap? {
     song.coverFile?.let { file ->
         runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
