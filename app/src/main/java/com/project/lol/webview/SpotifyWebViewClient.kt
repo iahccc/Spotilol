@@ -502,6 +502,7 @@ class SpotifyWebViewClient(
                 append(SpotilolPlayer.CONTENT)
                 append(VideoFullscreen.CONTENT)
                 append(LyricsPip.CONTENT)
+                append(NeteaseLyrics.CONTENT)
             }
         }
         val cleanJs = JsUtils.stripConsoleLogs(js) + "\n" +
