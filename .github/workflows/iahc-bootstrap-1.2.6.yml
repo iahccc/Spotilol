@@ -1,0 +1,29 @@
+name: Bootstrap iahc 1.2.6 release
+on:
+  push:
+    paths:
+      - ".github/workflows/iahc-bootstrap-1.2.6.yml"
+permissions:
+  contents: write
+  actions: write
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag and dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=iahc-1.2.6
+          response="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ "${response}" == *"Not Found"* ]]; then response=""; fi
+          if [[ -n "${response}" && "${response}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::Tag already exists at a different SHA"
+            exit 1
+          fi
+          if [[ -z "${response}" ]]; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/tags/${tag}" -f "sha=${GITHUB_SHA}"
+          fi
+          gh workflow run release.yml --repo "${GITHUB_REPOSITORY}" --ref main -f "release_tag=${tag}"
