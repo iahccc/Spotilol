@@ -69,6 +69,12 @@ object NeteaseLyrics {
                     +'#spotilolPlayerControls .spl-lyrics-source{background:transparent}'
                     +'#spotilolPlayerControls .spl-lyrics-source:after{content:"⌄";position:absolute;right:18px;top:50%;transform:translateY(-54%);color:rgba(255,255,255,.55);font-size:17px;pointer-events:none}'
                     +'#spotilolPlayerControls .spl-lyrics-source select:focus{border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.09)}'
+                    +'#spotilolPlayerControls .spl-lyrics-picker{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.06);color:#eee;padding:7px 10px;font-size:12px}'
+                    +'#spotilolPlayerControls .spl-lyrics-menu{position:absolute;inset:38px 6px 6px;z-index:100;overflow-y:auto;overscroll-behavior:contain;background:rgba(25,25,29,.98);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:5px;box-shadow:0 8px 22px rgba(0,0,0,.3)}'
+                    +'#spotilolPlayerControls .spl-lyrics-menu[hidden]{display:none!important}'
+                    +'#spotilolPlayerControls .spl-lyrics-menu-item{display:block;width:100%;text-align:left;border:0;border-radius:8px;padding:12px 10px;background:transparent;color:#eee;font-size:13px;white-space:normal}'
+                    +'#spotilolPlayerControls .spl-lyrics-menu-item.spl-selected{background:rgba(255,255,255,.12)}'
+                    +'#spotilolPlayerControls .spl-lyrics-menu-empty{padding:16px;color:#bbb;font-size:12px;text-align:center}'
                     +'#spotilolPlayerControls .spl-netease-list{box-sizing:border-box;min-height:100%;padding-left:12px;padding-right:12px}'
                     +'#spotilolPlayerControls .spl-netease-line{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;padding:9px 6px;line-height:1.35;overflow-wrap:anywhere;white-space:normal;text-align:center;color:rgba(255,255,255,.38);font-size:14px;transition:color .2s,opacity .2s,transform .2s}'
                     +'#spotilolPlayerControls .spl-netease-current{color:#fff;font-size:17px;font-weight:700;transform:scale(1.02)}'
@@ -216,29 +222,36 @@ object NeteaseLyrics {
                 if(!sourceRow){
                     sourceRow=document.createElement('div');
                     sourceRow.className='spl-lyrics-source';
-                    var sourceLabel=document.createElement('span');
-                    sourceLabel.textContent='歌词来源';
-                    var sourceSelect=document.createElement('select');
-                    sourceSelect.setAttribute('aria-label','选择歌词版本');
-                    sourceRow.appendChild(sourceLabel);
-                    sourceRow.appendChild(sourceSelect);
+                    sourceRow.innerHTML='<span>歌词来源</span>';
+                    var picker=document.createElement('button');
+                    picker.type='button';
+                    picker.className='spl-lyrics-picker';
+                    picker.setAttribute('aria-label','选择歌词版本');
+                    sourceRow.appendChild(picker);
                     panel.insertBefore(sourceRow,panel.firstChild);
                 }
-                // Player drag handlers on the parent intercept native WebView select taps.
-                // Keep the touch/click sequence inside the source picker.
+                var picker=sourceRow.querySelector('.spl-lyrics-picker');
+                var menu=panel.querySelector('.spl-lyrics-menu');
+                if(!menu){
+                    menu=document.createElement('div');
+                    menu.className='spl-lyrics-menu';
+                    menu.hidden=true;
+                    panel.appendChild(menu);
+                }
                 if(!sourceRow.__splPickerBound){
                     sourceRow.__splPickerBound=true;
                     ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click','pointerdown','pointerup'].forEach(function(type){
                         sourceRow.addEventListener(type,function(event){event.stopPropagation();},{passive:true});
                     });
+                    picker.onclick=function(event){
+                        event.stopPropagation();
+                        menu.hidden=!menu.hidden;
+                        renderSourceOptions();
+                    };
                 }
-                var sourceSelect=sourceRow.querySelector('select');
-                if(!sourceRow.__splEventsBound){
-                    sourceRow.__splEventsBound=true;
-                    ['pointerdown','pointerup','touchstart','touchmove','touchend','mousedown','mouseup','click','dblclick'].forEach(function(type){
-                        sourceRow.addEventListener(type,function(event){event.stopPropagation();},{passive:true});
-                    });
-                }
+                state.sourceSelect=picker;
+                state.sourceMenu=menu;
+                renderSourceOptions();
                 var scroller=panel.querySelector('.spl-netease-scroll');
                 var list=scroller&&scroller.querySelector('.spl-netease-list');
                 if(!scroller||!list){
@@ -252,9 +265,6 @@ object NeteaseLyrics {
                     panel.appendChild(scroller);
                 }
                 bindScroller(scroller);
-                sourceSelect.onchange=function(){selectSource(Number(sourceSelect.value));};
-                state.sourceSelect=sourceSelect;
-                renderSourceOptions();
 
                 var button=player.querySelector('#spl-lyrics');
                 if(button){
@@ -533,25 +543,39 @@ object NeteaseLyrics {
             }
 
             function renderSourceOptions(){
-                var select=state.sourceSelect;
-                if(!select) return;
+                var picker=state.sourceSelect,menu=state.sourceMenu;
+                if(!picker||!menu) return;
                 var candidates=state.candidates;
+                var chosen=candidates[state.selectedSource];
+                picker.textContent=chosen?(chosen.name||'未知歌曲')+' ⌄':'选择歌词版本 ⌄';
+                picker.setAttribute('aria-expanded',menu.hidden?'false':'true');
                 var signature=state.sourceKey+'|'+candidates.map(function(s){return s.id||s.resourceId;}).join(',');
-                if(select.dataset.signature!==signature){
-                    select.textContent='';
-                    if(!candidates.length){var option=document.createElement('option');option.textContent='正在匹配…';option.value='0';select.appendChild(option);}
+                if(menu.dataset.signature!==signature){
+                    menu.textContent='';
+                    if(!candidates.length){
+                        var empty=document.createElement('div');
+                        empty.className='spl-lyrics-menu-empty';
+                        empty.textContent=state.trackKey?'暂无匹配结果，请稍候或换一首歌':'播放歌曲后可选择歌词版本';
+                        menu.appendChild(empty);
+                    }
                     candidates.forEach(function(song,index){
-                        var option=document.createElement('option');
-                        option.value=String(index);
+                        var item=document.createElement('button');
+                        item.type='button';
+                        item.className='spl-lyrics-menu-item';
                         var artists=(song.artists||song.ar||[]).map(function(a){return a.name||a;}).join('/');
-                        option.textContent='网易云 · '+(song.name||'未知歌曲')+(artists?' — '+artists:'');
-                        select.appendChild(option);
+                        item.textContent=(song.name||'未知歌曲')+(artists?' — '+artists:'');
+                        item.onclick=function(event){
+                            event.stopPropagation();
+                            menu.hidden=true;
+                            selectSource(index);
+                        };
+                        menu.appendChild(item);
                     });
-                    select.dataset.signature=signature;
+                    menu.dataset.signature=signature;
                 }
-                select.disabled=!candidates.length;
-                select.title=candidates.length?('可选择 '+candidates.length+' 个歌词版本'):'未找到可选歌词版本';
-                select.value=String(Math.min(state.selectedSource,Math.max(0,candidates.length-1)));
+                Array.prototype.forEach.call(menu.querySelectorAll('.spl-lyrics-menu-item'),function(item,index){
+                    item.classList.toggle('spl-selected',index===state.selectedSource);
+                });
             }
 
             function selectSource(index){
