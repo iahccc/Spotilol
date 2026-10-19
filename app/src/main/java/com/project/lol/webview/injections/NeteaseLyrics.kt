@@ -37,7 +37,11 @@ object NeteaseLyrics {
                 cache:Object.create(null),
                 retryAt:0,
                 mountQueued:false,
-                keepScreenOn:null
+                keepScreenOn:null,
+                sourceSelect:null,
+                candidates:[],
+                selectedSource:0,
+                sourceKey:''
             };
             window.__spotilolNeteaseLyrics=state;
 
@@ -60,6 +64,8 @@ object NeteaseLyrics {
                     +'#spotilolPlayerControls .spl-netease-scroll{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}'
                     +'#spotilolPlayerControls .spl-netease-scroll::-webkit-scrollbar{width:3px}'
                     +'#spotilolPlayerControls .spl-netease-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}'
+                    +'#spotilolPlayerControls .spl-lyrics-source{display:flex;align-items:center;gap:6px;min-height:32px;padding:3px 8px;flex:0 0 auto;color:#ddd;font-size:12px}'
+                    +'#spotilolPlayerControls .spl-lyrics-source select{flex:1;min-width:0;max-width:100%;padding:5px 8px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:#292929;color:#fff;font-size:12px}'
                     +'#spotilolPlayerControls .spl-netease-list{box-sizing:border-box;min-height:100%;padding-left:12px;padding-right:12px}'
                     +'#spotilolPlayerControls .spl-netease-line{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;padding:9px 6px;line-height:1.35;overflow-wrap:anywhere;white-space:normal;text-align:center;color:rgba(255,255,255,.38);font-size:14px;transition:color .2s,opacity .2s,transform .2s}'
                     +'#spotilolPlayerControls .spl-netease-current{color:#fff;font-size:17px;font-weight:700;transform:scale(1.02)}'
@@ -203,10 +209,23 @@ object NeteaseLyrics {
                     else player.appendChild(panel);
                 }
 
+                var sourceRow=panel.querySelector('.spl-lyrics-source');
+                if(!sourceRow){
+                    sourceRow=document.createElement('div');
+                    sourceRow.className='spl-lyrics-source';
+                    var sourceLabel=document.createElement('span');
+                    sourceLabel.textContent='歌词来源';
+                    var sourceSelect=document.createElement('select');
+                    sourceSelect.setAttribute('aria-label','选择歌词版本');
+                    sourceRow.appendChild(sourceLabel);
+                    sourceRow.appendChild(sourceSelect);
+                    panel.insertBefore(sourceRow,panel.firstChild);
+                }
+                var sourceSelect=sourceRow.querySelector('select');
                 var scroller=panel.querySelector('.spl-netease-scroll');
                 var list=scroller&&scroller.querySelector('.spl-netease-list');
                 if(!scroller||!list){
-                    while(panel.firstChild) panel.removeChild(panel.firstChild);
+                    if(scroller) scroller.remove();
                     var scroller=document.createElement('div');
                     scroller.className='spl-netease-scroll';
                     scroller.setAttribute('tabindex','0');
@@ -216,6 +235,9 @@ object NeteaseLyrics {
                     panel.appendChild(scroller);
                 }
                 bindScroller(scroller);
+                sourceSelect.onchange=function(){selectSource(Number(sourceSelect.value));};
+                state.sourceSelect=sourceSelect;
+                renderSourceOptions();
 
                 var button=player.querySelector('#spl-lyrics');
                 if(button){
@@ -493,6 +515,45 @@ object NeteaseLyrics {
                 return next(0);
             }
 
+            function renderSourceOptions(){
+                var select=state.sourceSelect;
+                if(!select) return;
+                var candidates=state.candidates;
+                var signature=state.sourceKey+'|'+candidates.map(function(s){return s.id||s.resourceId;}).join(',');
+                if(select.dataset.signature!==signature){
+                    select.textContent='';
+                    if(!candidates.length){var option=document.createElement('option');option.textContent='正在匹配…';option.value='0';select.appendChild(option);}
+                    candidates.forEach(function(song,index){
+                        var option=document.createElement('option');
+                        option.value=String(index);
+                        var artists=(song.artists||song.ar||[]).map(function(a){return a.name||a;}).join('/');
+                        option.textContent='网易云 · '+(song.name||'未知歌曲')+(artists?' — '+artists:'');
+                        select.appendChild(option);
+                    });
+                    select.dataset.signature=signature;
+                }
+                select.disabled=!candidates.length;
+                select.value=String(Math.min(state.selectedSource,Math.max(0,candidates.length-1)));
+            }
+
+            function selectSource(index){
+                if(!Number.isInteger(index)||index<0||index>=state.candidates.length) return;
+                state.selectedSource=index;
+                renderSourceOptions();
+                var key=state.trackKey;
+                var request=++state.generation;
+                showStatus('loading');
+                fetchLyrics(state.candidates[index].id||state.candidates[index].resourceId).then(function(lines){
+                    if(request!==state.generation||key!==state.trackKey||!state.modeActive) return;
+                    var entry=lines.length?{kind:'ready',lines:lines}:{kind:'empty',lines:[],expiresAt:Date.now()+EMPTY_CACHE_MS};
+                    state.cache[key]=entry;
+                    applyCached(entry);
+                }).catch(function(){
+                    if(request!==state.generation||key!==state.trackKey||!state.modeActive) return;
+                    applyCached({kind:'error',lines:[],expiresAt:Date.now()+ERROR_RETRY_MS});
+                });
+            }
+
             function clearList(){
                 if(!state.list) return;
                 while(state.list.firstChild) state.list.removeChild(state.list.firstChild);
@@ -599,8 +660,11 @@ object NeteaseLyrics {
             }
 
             function loadTrack(key,title,artist,duration){
+                state.sourceKey=key;
+                state.candidates=[];
+                state.selectedSource=0;
+                renderSourceOptions();
                 var cached=getCachedEntry(key);
-                if(cached){applyCached(cached);return;}
                 var request=++state.generation;
                 state.retryAt=0;
                 state.lines=[];
@@ -608,6 +672,8 @@ object NeteaseLyrics {
                 showStatus('loading');
                 findSongs(title,artist).then(function(candidates){
                     if(request!==state.generation||!state.modeActive||key!==state.trackKey) return null;
+                    state.candidates=candidates;
+                    renderSourceOptions();
                     return fetchFirstLyrics(candidates);
                 }).then(function(lines){
                     if(lines===null||request!==state.generation||!state.modeActive||key!==state.trackKey) return;
