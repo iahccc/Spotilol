@@ -64,8 +64,8 @@ object NeteaseLyrics {
                     +'#spotilolPlayerControls .spl-netease-scroll{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}'
                     +'#spotilolPlayerControls .spl-netease-scroll::-webkit-scrollbar{width:3px}'
                     +'#spotilolPlayerControls .spl-netease-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}'
-                    +'#spotilolPlayerControls .spl-lyrics-source{display:flex;align-items:center;gap:6px;min-height:32px;padding:3px 8px;flex:0 0 auto;color:#ddd;font-size:12px}'
-                    +'#spotilolPlayerControls .spl-lyrics-source select{flex:1;min-width:0;max-width:100%;padding:5px 8px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:#292929;color:#fff;font-size:12px}'
+                    +'#spotilolPlayerControls .spl-lyrics-source{display:flex;align-items:center;gap:6px;min-height:32px;padding:3px 8px;flex:0 0 auto;color:#ddd;font-size:12px;position:relative;z-index:20;pointer-events:auto;touch-action:manipulation}'
+                    +'#spotilolPlayerControls .spl-lyrics-source select{flex:1;min-width:0;max-width:100%;padding:5px 8px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:#292929;color:#fff;font-size:12px;pointer-events:auto;touch-action:manipulation}'
                     +'#spotilolPlayerControls .spl-netease-list{box-sizing:border-box;min-height:100%;padding-left:12px;padding-right:12px}'
                     +'#spotilolPlayerControls .spl-netease-line{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;padding:9px 6px;line-height:1.35;overflow-wrap:anywhere;white-space:normal;text-align:center;color:rgba(255,255,255,.38);font-size:14px;transition:color .2s,opacity .2s,transform .2s}'
                     +'#spotilolPlayerControls .spl-netease-current{color:#fff;font-size:17px;font-weight:700;transform:scale(1.02)}'
@@ -222,6 +222,12 @@ object NeteaseLyrics {
                     panel.insertBefore(sourceRow,panel.firstChild);
                 }
                 var sourceSelect=sourceRow.querySelector('select');
+                if(!sourceRow.__splEventsBound){
+                    sourceRow.__splEventsBound=true;
+                    ['pointerdown','pointerup','touchstart','touchmove','touchend','mousedown','mouseup','click','dblclick'].forEach(function(type){
+                        sourceRow.addEventListener(type,function(event){event.stopPropagation();},{passive:true});
+                    });
+                }
                 var scroller=panel.querySelector('.spl-netease-scroll');
                 var list=scroller&&scroller.querySelector('.spl-netease-list');
                 if(!scroller||!list){
@@ -533,6 +539,7 @@ object NeteaseLyrics {
                     select.dataset.signature=signature;
                 }
                 select.disabled=!candidates.length;
+                select.title=candidates.length?('可选择 '+candidates.length+' 个歌词版本'):'未找到可选歌词版本';
                 select.value=String(Math.min(state.selectedSource,Math.max(0,candidates.length-1)));
             }
 
