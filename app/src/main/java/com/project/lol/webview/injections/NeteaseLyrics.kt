@@ -221,6 +221,14 @@ object NeteaseLyrics {
                     sourceRow.appendChild(sourceSelect);
                     panel.insertBefore(sourceRow,panel.firstChild);
                 }
+                // Player drag handlers on the parent intercept native WebView select taps.
+                // Keep the touch/click sequence inside the source picker.
+                if(!sourceRow.__splPickerBound){
+                    sourceRow.__splPickerBound=true;
+                    ['touchstart','touchmove','touchend','touchcancel','mousedown','mouseup','click','pointerdown','pointerup'].forEach(function(type){
+                        sourceRow.addEventListener(type,function(event){event.stopPropagation();},{passive:true});
+                    });
+                }
                 var sourceSelect=sourceRow.querySelector('select');
                 if(!sourceRow.__splEventsBound){
                     sourceRow.__splEventsBound=true;
