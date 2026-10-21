@@ -643,8 +643,8 @@ object SpotilolPlayer {
                             var ph=isPlaying
                                 ?'<svg viewBox="0 0 16 16"><path fill="currentColor" d="M2.7 1a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7zm8 0a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7z"/></svg>'
                                 :'<svg viewBox="0 0 16 16"><path fill="currentColor" d="M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288z"/></svg>';
-                            if(pp)pp.innerHTML=ph;
-                            if(ppm)ppm.innerHTML=ph;
+                            if(pp&&pp.__splIconState!==isPlaying){pp.innerHTML=ph;pp.__splIconState=isPlaying;}
+                            if(ppm&&ppm.__splIconState!==isPlaying){ppm.innerHTML=ph;ppm.__splIconState=isPlaying;}
                         }
                         if(sh){
                             var sst=splShuffleState();
@@ -926,7 +926,7 @@ object SpotilolPlayer {
 
                     var rafLastTime=0;
                     function rafUpdate(timestamp){
-                        if(!window.__splBusy&&!window.__splBg&&timestamp-rafLastTime>100){ splUpdate(); rafLastTime=timestamp; }
+                        if(!window.__splBusy&&!window.__splBg&&timestamp-rafLastTime>200){ splUpdate(); rafLastTime=timestamp; }
                         requestAnimationFrame(rafUpdate);
                     }
                     var splWasOpen=false;
