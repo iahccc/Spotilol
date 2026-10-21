@@ -12,7 +12,6 @@ object PowerSave {
 
             var videoObs = null;
             var psStyle = null;
-            var origSI = null;
 
             function isCanvasVideo(v){
                 try{
@@ -101,16 +100,7 @@ object PowerSave {
                     appendStyle();
                     document.addEventListener('DOMContentLoaded', appendStyle);
 
-                    origSI = window.setInterval.bind(window);
-                    window.setInterval = function(fn, delay){
-                        if(window.__splPsActive){
-                            var d = Number(delay) || 0;
-                            if(d >= 100 && d < 5000){ delay = Math.max(d*3, 1500); }
-                            else if(d >= 5000 && d < 10000){ delay = 10000; }
-                        }
-                        return origSI(fn, delay);
-                    };
-
+                    // Never override global timers: Spotify uses them for playback state and recovery.
                     window.__splPsRafMs = 500;
                 } else {
                     if(!window.__splPsActive) return;
@@ -119,7 +109,6 @@ object PowerSave {
                     videoObs = null;
                     try{ if(psStyle) psStyle.remove(); }catch(e){}
                     psStyle = null;
-                    if(origSI){ try{ window.setInterval = origSI; }catch(e){} }
                     unfreezeAll();
                     window.__splPsRafMs = 0;
                 }
