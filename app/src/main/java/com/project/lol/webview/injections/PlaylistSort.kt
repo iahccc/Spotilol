@@ -442,9 +442,10 @@ object PlaylistSort {
                         for (var i = 0; i < muts.length; i++) {
                             if (muts[i].addedNodes && muts[i].addedNodes.length) { added = true; break; }
                         }
-                        if (!added) return;
+                        if (!added || document.hidden || !enabled() || !currentUri()) return;
                         if (document.getElementById('context-menu')) scheduleMenu();
-                        scheduleDecorate();
+                        // Do not rescan playlist headers for every unrelated player DOM update.
+                        if (document.querySelector('[role="columnheader"]')) scheduleDecorate();
                     });
                     domObserver.observe(root, { childList: true, subtree: true });
                 } catch(e){}
