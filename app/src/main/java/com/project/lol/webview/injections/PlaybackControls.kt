@@ -160,20 +160,44 @@ object PlaybackControls {
                     });
                 },900);
             };
+            // Playback can take a moment to recover after Android suspends WebView.
+            // Retry only a confirmed play request, never a toggle or pause.
+            window.__splPlayToken=0;
+            window.splRequestPlay=function(){
+                var token=++window.__splPlayToken;
+                var delays=[0,650,1400,2500];
+                function attempt(index){
+                    if(token!==window.__splPlayToken||document.hidden) return;
+                    if(window.splIsPlaying()===true) return;
+                    var pb=window.splEnsurePb();
+                    if(pb && !pb.disabled && pb.getAttribute('aria-disabled')!=='true'){
+                        // Unknown state: do not blindly toggle and accidentally pause.
+                        if(window.splIsPlaying()===false) pb.click();
+                    }
+                    if(index+1<delays.length){
+                        setTimeout(function(){
+                            if(token!==window.__splPlayToken||window.splIsPlaying()===true) return;
+                            attempt(index+1);
+                        },delays[index+1]-delays[index]);
+                    }
+                }
+                attempt(0);
+            };
             window.actPlayPause = function(play) {
                 var cur = (typeof window.splIsPlaying === 'function') ? window.splIsPlaying() : null;
                 if (play === false) {
+                    ++window.__splPlayToken;
                     window.splPauseRetry(0);
                     return;
                 }
                 window.splAbortPause();
-                var pb = window.splEnsurePb();
-                if (!pb) return;
-                if (play === null || typeof play === 'undefined' || cur === null) {
-                    pb.click();
-                } else if (play === true) {
-                    if (!cur) pb.click();
+                if (play === true) {
+                    window.splRequestPlay();
+                    return;
                 }
+                ++window.__splPlayToken;
+                var pb=window.splEnsurePb();
+                if(pb) pb.click();
             };
             window.actSkipBack = function() {
                 var bb = document.querySelector('button[data-testid=control-button-skip-back]');
