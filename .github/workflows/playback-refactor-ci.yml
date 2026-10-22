@@ -1,0 +1,66 @@
+name: Playback refactor regression checks
+on:
+  push:
+    branches:
+      - "fix/async-bridge-player-*"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bridge-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify bridge contract
+        run: node --test tests/bridge-contract.test.cjs
+
+  signed-android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Restore signing and Google Services
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p keystore
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > keystore/release.jks
+          printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json
+          escape_property() {
+            local value="$1"
+            value="${value//\\/\\\\}"
+            value="${value// /\\ }"
+            value="${value//:/\\:}"
+            value="${value//=/\\=}"
+            printf '%s' "${value}"
+          }
+          {
+            printf 'storeFile=release.jks\n'
+            printf 'storePassword=%s\n' "$(escape_property "${ANDROID_KEYSTORE_PASSWORD}")"
+            printf 'keyAlias=%s\n' "$(escape_property "${ANDROID_KEY_ALIAS}")"
+            printf 'keyPassword=%s\n' "$(escape_property "${ANDROID_KEY_PASSWORD}")"
+          } > keystore/keystore.properties
+          chmod 600 keystore/release.jks keystore/keystore.properties app/google-services.json
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Compile and sign APK
+        run: ./gradlew --no-daemon :app:assembleRelease
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Spotilol-1.2.11-playback-preview
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
