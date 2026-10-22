@@ -41,6 +41,7 @@ test('native Fetch returns immediately and resolves to a cloneable Response', as
   }));
   const response = await promise;
   assert.equal(response.ok,true);
+  assert.equal(response.url,'https://gew4-spclient.spotify.com/connect-state');
   const copy = response.clone();
   assert.deepEqual(await response.json(),{ok:true});
   assert.equal(await copy.text(), '{"ok":true}');
@@ -79,4 +80,16 @@ test('spicy and netease lyrics have no synchronous JS network bridge calls', () 
   assert.ok(injection('SpicyLyrics.kt').includes('AndBridge.spicyLyricsAsync('));
   assert.ok(!injection('NeteaseLyrics.kt').includes('AndBridge.nFetch('));
   assert.ok(injection('NeteaseLyrics.kt').includes('window.mngFetch(url,options)'));
+});
+
+test('player and Android notification trackers initialize independently', () => {
+  const main = injection('MainLoop.kt');
+  const tracker = injection('AndroidTracker.kt');
+  const playerSrc = fs.readFileSync(sourcePath('SpotilolPlayer.kt'),'utf8');
+  assert.ok(main.includes('setTimeout(function(){'));
+  assert.ok(main.includes('addAndAuto();'));
+  assert.ok(main.indexOf('addAndAuto();') < main.indexOf('window.wirePlayBtn'));
+  assert.ok(tracker.includes('__splStatusWatch = setInterval'));
+  assert.ok(playerSrc.includes('pl.__splReady=true'));
+  assert.ok(playerSrc.includes("if(npb) npb.style.display=''"));
 });
