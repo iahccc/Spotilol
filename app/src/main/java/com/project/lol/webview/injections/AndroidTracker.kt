@@ -8,11 +8,16 @@ object AndroidTracker {
                     else { clearInterval(aaint); }
                 }
                 function readTrackState(){
-                    var ta = document.querySelector('a[data-testid=context-item-link]');
-                    if(ta) track=ta.text; else track=null;
+                    var id = typeof window.splPlayingTrackId==='function' ? window.splPlayingTrackId() : window.splTrackId;
+                    var meta = id && window.__splTrackMeta ? window.__splTrackMeta[id] : null;
+                    var widget = id && typeof window.splWidgetMeta==='function' ? window.splWidgetMeta(id) : null;
+                    var ta = document.querySelector('a[data-testid=context-item-link], [data-testid=now-playing-widget] a[href*="/track/"]');
+                    track = ((ta && ta.textContent || '').trim() || (widget && widget.name) ||
+                        (meta && meta.name) || (id && id===window.__curTrackId && window.__curTrackName) || '') || null;
                     var aa = document.querySelector('a[data-testid=context-item-info-artist]');
                     if(!aa) aa = document.querySelector('a[data-testid=context-item-info-show]');
-                    if(aa) artist=aa.text; else artist='';
+                    artist = ((aa && aa.textContent || '').trim() || (widget && widget.artist) ||
+                        (meta && meta.artist) || (id && id===window.__curTrackId && window.__curTrackArtist) || '');
                     var rr = document.querySelector('button[data-testid=control-button-repeat]');
                     if(rr) repmode=rr.getAttribute('aria-checked'); else repmode='false';
                     shuffle = (typeof window.splShuffleState === 'function') ? window.splShuffleState() : 'off';
@@ -42,10 +47,22 @@ object AndroidTracker {
                     });
                     obs.observe(npTarget, { childList: true, subtree: true, attributes: true, characterData: true });
                     aaint = obs;
-                    readTrackState();
                 } catch(e) {
-                    aaint = setInterval(readTrackState, 1000);
+                    aaint = null;
                 }
+                // Native now-playing DOM may stop mutating after a Web Player update.
+                // Poll at low frequency so notification state recovers without relying on the native button.
+                if(window.__splStatusWatch) clearInterval(window.__splStatusWatch);
+                window.__splStatusWatch = setInterval(function(){
+                    try { readTrackState(); } catch(e){}
+                }, 1500);
+                if(window.__splStatusOff) { try { window.__splStatusOff(); } catch(e){} }
+                if(typeof window.splOnTrackChange === 'function'){
+                    window.__splStatusOff = window.splOnTrackChange(function(){
+                        setTimeout(function(){ try { readTrackState(); } catch(e){} }, 0);
+                    });
+                }
+                readTrackState();
             };
         
     """

@@ -52,6 +52,7 @@ class SpotifyWebViewClient(
     }
 
     fun dispose() {
+        WebViewHost.bridge?.cancelAllNativeRequests()
         NavToken.bump()
         cancelPendingPlayerInjection()
         prefsListener?.let { boundPrefs?.unregisterOnSharedPreferenceChangeListener(it) }
@@ -150,6 +151,7 @@ class SpotifyWebViewClient(
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         cancelPendingPlayerInjection()
+        WebViewHost.bridge?.cancelAllNativeRequests()
         NavToken.bump()
         pageStartedAt = System.currentTimeMillis()
         val prefs = view?.context?.getSharedPreferences("spotilol_prefs", 0)
@@ -463,6 +465,7 @@ class SpotifyWebViewClient(
                 append(DevLogPrelude.js())
                 append("\n")
             }
+            append(PlaybackPerf.CONTENT)
             append(PlayerCore.CONTENT)
             append(TrackObserver.CONTENT)
             append(ClassicBridge.CONTENT)

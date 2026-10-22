@@ -435,12 +435,12 @@ object NeteaseLyrics {
             }
 
             function nativeJson(url){
-                return Promise.resolve().then(function(){
-                    if(!window.AndBridge||typeof AndBridge.nFetch!=='function') throw new Error('Native bridge unavailable');
-                    var raw=AndBridge.nFetch(url,JSON.stringify({method:'GET',headers:{Accept:'application/json'}}));
-                    var response=JSON.parse(raw);
-                    if(!response||response.status<200||response.status>=300) throw new Error('HTTP '+(response?response.status:0));
-                    return JSON.parse(response.body||'{}');
+                if(!window.mngFetch) return Promise.reject(new Error('Native bridge unavailable'));
+                var options={method:'GET',headers:{Accept:'application/json'}};
+                if(state.nativeController) options.signal=state.nativeController.signal;
+                return window.mngFetch(url,options).then(function(response){
+                    if(!response.ok) throw new Error('HTTP '+response.status);
+                    return response.json();
                 });
             }
 
@@ -702,6 +702,8 @@ object NeteaseLyrics {
             }
 
             function loadTrack(key,title,artist,duration){
+                if(state.nativeController){try{state.nativeController.abort();}catch(e){}}
+                state.nativeController=typeof AbortController==='function'?new AbortController():null;
                 state.sourceKey=key;
                 state.candidates=[];
                 state.selectedSource=0;
@@ -806,6 +808,7 @@ object NeteaseLyrics {
                 });
             });
             window.addEventListener('pagehide',function(){
+                if(state.nativeController){try{state.nativeController.abort();}catch(e){}}
                 setLyricsKeepScreenOn(false,true);
             });
             document.addEventListener('visibilitychange',function(){

@@ -35,6 +35,21 @@ object MainLoop {
                     if(pb) wirePlayBtn(pb);
                 },5000);
 
+                // Media state tracking must not depend on Spotify's native button being mounted.
+                // Delay to the end of injection: AndroidTracker and AutoFeatures are defined after MainLoop.
+                setTimeout(function(){
+                    if(ffDone || typeof window.addAndAuto!=='function' ||
+                       typeof window.addAutoFeatures!=='function' || typeof window.addCSSJSHack!=='function') return;
+                    ffDone=true;
+                    try { AndBridge.manageTShut(true); AndBridge.manageTSleep(false); } catch(e){}
+                    try { addAndAuto(); } catch(e){}
+                    try { addAutoFeatures(); } catch(e){}
+                    try { addCSSJSHack(); } catch(e){}
+                    // Notify Android media service even if Spotify has not mounted a native play button.
+                    try { AndBridge.playLoaded(); } catch(e){}
+                    try { if(window.__splPerf) window.__splPerf('tracker-ready', 0); } catch(e){}
+                },0);
+
                 var tries = 0;
                 var bootIv = setInterval(function(){
                     tries++;
@@ -83,14 +98,7 @@ object MainLoop {
                     }
                 });
 
-                if(!ffDone){
-                    ffDone=true;
-                    AndBridge.manageTShut(true);
-                    AndBridge.manageTSleep(false);
-                    addAndAuto();
-                    addAutoFeatures();
-                    addCSSJSHack();
-                }
+                // Button binding is optional: tracker was initialized independently.
                 AndBridge.playLoaded();
             };
             firstFuck();

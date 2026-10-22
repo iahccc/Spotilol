@@ -6,6 +6,15 @@ import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.util.Base64
+import com.project.lol.webview.WebViewHost
+import java.net.URI
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.FutureTask
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.RejectedExecutionException
 import android.widget.Toast
 import com.project.lol.R
 import com.project.lol.service.MediaNotificationService
@@ -332,6 +341,115 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
         DownloadManager.cancelAll()
     }
 
+    // Bridge methods must return immediately: JavaScriptInterface calls can block WebView JS.
+    private val pendingNetwork = ConcurrentHashMap<String, FutureTask<Unit>>()
+    private val networkExecutor = ThreadPoolExecutor(
+        2, 4, 30L, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(48),
+        { runnable -> Thread(runnable, "spl-network-bridge").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
+
+    private fun permittedFetchUrl(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        return uri.scheme.equals("https", true) && uri.userInfo == null &&
+            (host == "spotify.com" || host.endsWith(".spotify.com") ||
+                host == "scdn.co" || host.endsWith(".scdn.co") ||
+                host == "music.163.com")
+    }
+
+    private fun deliverBridgeResult(id: String, jsFunction: String, payload: String, generation: Long) {
+        if (generation != NavToken.current()) return
+        val webView = WebViewHost.webView ?: return
+        webView.post {
+            if (generation != NavToken.current() || WebViewHost.webView !== webView) return@post
+            webView.evaluateJavascript(
+                "if(typeof window." + jsFunction + "==='function')window." + jsFunction +
+                    "(" + JSONObject.quote(id) + "," + JSONObject.quote(payload) + ");", null
+            )
+        }
+    }
+
+    fun cancelAllNativeRequests() {
+        pendingNetwork.values.forEach { it.cancel(true) }
+        pendingNetwork.clear()
+    }
+
+    fun closeNetworkBridge() {
+        cancelAllNativeRequests()
+        networkExecutor.shutdownNow()
+    }
+
+    @Suppress("unused")
+    @JavascriptInterface
+    fun cancelFetch(id: String) {
+        pendingNetwork.remove(id)?.cancel(true)
+    }
+
+    @Suppress("unused")
+    @JavascriptInterface
+    fun nFetchAsync(id: String, url: String, optsJson: String?) {
+        if (!id.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return
+        val generation = NavToken.current()
+        if (!permittedFetchUrl(url)) {
+            deliverBridgeResult(id, "__splNativeFetchDone",
+                "{\"status\":0,\"body\":\"URL not permitted\"}", generation)
+            return
+        }
+        val task = FutureTask<Unit>({
+            val started = System.nanoTime()
+            try {
+                val response = nFetch(url, optsJson)
+                deliverBridgeResult(id, "__splNativeFetchDone", response, generation)
+                Logger.d(TAG, "native fetch completed in " +
+                    ((System.nanoTime() - started) / 1_000_000) + "ms")
+            } finally {
+                pendingNetwork.remove(id)
+            }
+            Unit
+        })
+        if (pendingNetwork.putIfAbsent(id, task) != null) return
+        try { networkExecutor.execute(task) }
+        catch (e: RejectedExecutionException) {
+            pendingNetwork.remove(id)
+            deliverBridgeResult(id, "__splNativeFetchDone",
+                "{\"status\":0,\"body\":\"Native network queue full\"}", generation)
+        }
+    }
+
+    @Suppress("unused")
+    @JavascriptInterface
+    fun spicyLyricsAsync(id: String, trackId: String?, title: String?, artist: String?, duration: Int) {
+        if (!id.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return
+        val generation = NavToken.current()
+        val task = FutureTask<Unit>({
+            try {
+                val payload = if (trackId?.length == 22)
+                    runCatching { SpicyLyricsClient.fetch(trackId, title, artist, duration) }.getOrNull()
+                else null
+                deliverBridgeResult(id, "__splNativeLyricsDone", payload ?: "null", generation)
+            } finally {
+                pendingNetwork.remove(id)
+            }
+            Unit
+        })
+        if (pendingNetwork.putIfAbsent(id, task) != null) return
+        try { networkExecutor.execute(task) }
+        catch (e: RejectedExecutionException) {
+            pendingNetwork.remove(id)
+            deliverBridgeResult(id, "__splNativeLyricsDone", "null", generation)
+        }
+    }
+
+    @Suppress("unused")
+    @JavascriptInterface
+    fun playbackPerf(name: String?, elapsedMs: Double) {
+        if (name !in setOf("play-click", "long-task", "event-loop-lag", "play-state",
+                "tracker-ready", "native-fetch", "player-mounted", "player-missing")) return
+        if (!elapsedMs.isFinite() || elapsedMs < 0 || elapsedMs > 120_000) return
+        Logger.i("playback.perf", "${name}: ${elapsedMs.toInt()}ms")
+    }
+
     @Suppress("unused")
     @JavascriptInterface
     fun nFetch(url: String, optsJson: String?): String {
@@ -349,6 +467,7 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
 
         var conn: HttpURLConnection? = null
         return try {
+            if (!permittedFetchUrl(url)) throw IllegalArgumentException("URL not permitted")
             val opts = if (optsJson.isNullOrBlank()) JSONObject() else JSONObject(optsJson)
             val method = opts.optString("method", "GET")
             val body = if (opts.has("body") && !opts.isNull("body")) opts.getString("body") else null
@@ -395,8 +514,13 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             CookieManager.getInstance().flush()
 
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
-            val responseBody = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-            Logger.d(TAG, "nFetch <- $code ${responseBody.length} bytes ${url.take(100)}")
+            val rawBytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            val mime = conn.contentType.orEmpty().lowercase(Locale.ROOT)
+            val binary = mime.isNotBlank() && !mime.contains("json") &&
+                !mime.contains("text") && !mime.contains("xml") &&
+                !mime.contains("javascript") && !mime.contains("form-urlencoded")
+            val responseBody = if (binary) "" else rawBytes.toString(Charsets.UTF_8)
+            Logger.d(TAG, "nFetch <- $code ${rawBytes.size} bytes")
 
             val responseHeaders = JSONObject()
             headerFields.forEach { (key, values) ->
@@ -405,6 +529,7 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
             JSONObject().apply {
                 put("status", code)
                 put("body", responseBody)
+                if (binary) put("bodyBase64", Base64.encodeToString(rawBytes, Base64.NO_WRAP))
                 put("headers", responseHeaders)
             }.toString()
         } catch (e: Exception) {
