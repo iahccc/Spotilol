@@ -375,6 +375,11 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
         pendingNetwork.clear()
     }
 
+    fun closeNetworkBridge() {
+        cancelAllNativeRequests()
+        networkExecutor.shutdownNow()
+    }
+
     @Suppress("unused")
     @JavascriptInterface
     fun cancelFetch(id: String) {
