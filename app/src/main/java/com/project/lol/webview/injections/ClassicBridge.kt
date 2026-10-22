@@ -17,7 +17,7 @@ object ClassicBridge {
                 try { return new DOMException('The operation was aborted.', 'AbortError'); }
                 catch(e){ var ex = new Error('The operation was aborted.'); ex.name='AbortError'; return ex; }
             }
-            function dataResponse(data){
+            function dataResponse(data,url){
                 var headers = new Headers(data.headers || {});
                 var body = data.body || '';
                 if(typeof data.bodyBase64==='string'){
@@ -28,7 +28,10 @@ object ClassicBridge {
                 }
                 // Response forbids non-null bodies for 204, 205 and 304 responses.
                 if(data.status===204 || data.status===205 || data.status===304) body=null;
-                return new Response(body, {status:data.status,headers:headers});
+                var response=new Response(body, {status:data.status,headers:headers});
+                // Synthetic Responses lack a URL; preserve the native bridge's previous response.url.
+                try{ Object.defineProperty(response,'url',{value:url,configurable:true}); }catch(e){}
+                return response;
             }
             window.__splNativeFetchDone = function(id, raw){
                 var p = pending[id];
@@ -40,7 +43,7 @@ object ClassicBridge {
                 try{
                     var data=JSON.parse(raw);
                     if(!data || !data.status) throw asError(data && data.body);
-                    p.resolve(dataResponse(data));
+                    p.resolve(dataResponse(data,p.url));
                 }catch(e){ p.reject(e); }
             };
 
@@ -65,7 +68,7 @@ object ClassicBridge {
                 return new Promise(function(resolve,reject){
                     var id='spl'+Date.now().toString(36)+(++seq).toString(36);
                     var start=performance.now();
-                    var entry={resolve:resolve,reject:reject,signal:signal,start:start};
+                    var entry={resolve:resolve,reject:reject,signal:signal,start:start,url:url};
                     var abort=function(){
                         if(!pending[id]) return;
                         delete pending[id];
