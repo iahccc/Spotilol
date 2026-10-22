@@ -6,7 +6,9 @@ object SpicyLyrics {
             if (window.__spicyLyrics) return;
             window.__spicyLyrics = true;
 
-            var cache = {};
+            var cache = Object.create(null);
+            var pending = Object.create(null);
+            var seq=0, generation=0, activeId=null;
 
             function enabled(){ return window.__spicyLyricsEnabled !== false; }
 
@@ -35,27 +37,55 @@ object SpicyLyrics {
                 } catch(e){ return { title:'', artist:'', duration:0 }; }
             }
 
-            function resolve(id){
-                if (!enabled() || !id || id.length !== 22) return null;
-                if (Object.prototype.hasOwnProperty.call(cache, id)) return cache[id];
-                var meta = trackMeta();
-                var payload = null;
-                try {
-                    var raw = AndBridge.spicyLyrics(id, meta.title, meta.artist, meta.duration);
-                    if (raw && raw !== 'null') payload = JSON.parse(raw);
-                } catch(e){ payload = null; }
-                var unsynced = payload && payload.lyrics && payload.lyrics.syncType === 'UNSYNCED';
-                if (!(unsynced && !meta.title)) cache[id] = payload;
-                return payload;
+            window.__splNativeLyricsDone = function(requestId, raw){
+                var task = pending[requestId];
+                if(!task) return;
+                delete pending[requestId];
+                clearTimeout(task.timer);
+                var result=null;
+                try { if(raw && raw!=='null') result=JSON.parse(raw); }catch(e){}
+                task.resolve(result);
+            };
+            function queryNative(id, meta){
+                return new Promise(function(resolve){
+                    var requestId='lyr'+Date.now().toString(36)+(++seq).toString(36);
+                    var timer=setTimeout(function(){
+                        if(!pending[requestId]) return;
+                        delete pending[requestId];
+                        try{AndBridge.cancelFetch(requestId);}catch(e){}
+                        resolve(null);
+                    },22000);
+                    pending[requestId]={resolve:resolve,timer:timer,id:id};
+                    try {
+                        AndBridge.spicyLyricsAsync(requestId,id,meta.title,meta.artist,meta.duration);
+                    } catch(e){ clearTimeout(timer); delete pending[requestId]; resolve(null); }
+                });
             }
-
+            function resolve(id){
+                if(!enabled() || !id || id.length!==22) return Promise.resolve(null);
+                if(Object.prototype.hasOwnProperty.call(cache,id)) return Promise.resolve(cache[id]);
+                var meta=trackMeta(), version=generation;
+                var task=queryNative(id,meta).then(function(payload){
+                    if(version!==generation) return null;
+                    var unsynced=payload && payload.lyrics && payload.lyrics.syncType==='UNSYNCED';
+                    if(!(unsynced && !meta.title)) cache[id]=payload;
+                    return payload;
+                }).catch(function(){return null;});
+                cache[id]=task;
+                return task;
+            }
             function patchMetadata(json){
-                if (!json || json.has_lyrics !== undefined) return false;
-                var id = idFromUri(json.canonical_uri);
-                if (!id) return false;
-                if (!resolve(id)) return false;
-                json.has_lyrics = true;
-                return true;
+                if(!json || json.has_lyrics!==undefined) return false;
+                var id=idFromUri(json.canonical_uri);
+                if(!id) return false;
+                var known=cache[id];
+                if(known && typeof known.then!=='function'){
+                    json.has_lyrics=true;
+                    return true;
+                }
+                // Metadata must never wait for an external lyrics service.
+                resolve(id);
+                return false;
             }
 
             function jsonResponse(obj){
@@ -81,9 +111,9 @@ object SpicyLyrics {
                         }).catch(function(){ return resp; });
                     }
                     if (resp.status !== 404) return resp;
-                    var payload = resolve(lyr[1]);
-                    if (!payload) return resp;
-                    return jsonResponse(payload);
+                    return resolve(lyr[1]).then(function(payload){
+                        return payload ? jsonResponse(payload) : resp;
+                    }).catch(function(){ return resp; });
                 });
             };
 
@@ -118,21 +148,33 @@ object SpicyLyrics {
                 if (typeof window.splOnTrackChange !== 'function') return;
                 window.splOnTrackChange(function(uri, id){
                     if (!enabled() || !id) return;
-                    if (!resolve(id)) return;
-                    var tries = 0;
-                    var iv = setInterval(function(){
-                        tries++;
-                        var b = document.querySelector('button[data-testid="lyrics-button"]');
-                        if (b && !b.disabled) { clearInterval(iv); return; }
-                        nudgeAvailability();
-                        if (tries >= 8) clearInterval(iv);
-                    }, 2500);
+                    activeId=id;
+                    Object.keys(pending).forEach(function(key){
+                        var task=pending[key];
+                        if(task.id!==id){
+                            clearTimeout(task.timer); delete pending[key];
+                            try{AndBridge.cancelFetch(key);}catch(e){}
+                            task.resolve(null);
+                        }
+                    });
+                    resolve(id).then(function(payload){
+                        if(!payload || activeId!==id) return;
+                        var tries=0;
+                        var iv=setInterval(function(){
+                            tries++;
+                            if(activeId!==id){clearInterval(iv);return;}
+                            var b=document.querySelector('button[data-testid="lyrics-button"]');
+                            if(b && !b.disabled){clearInterval(iv);return;}
+                            nudgeAvailability();
+                            if(tries>=8) clearInterval(iv);
+                        },2500);
+                    });
                 });
             }
 
             window.spicyLyrics = {
-                refresh: function(){ cache = {}; },
-                has: function(id){ return !!resolve(id); },
+                refresh: function(){ generation++; cache=Object.create(null); },
+                has: function(id){ var v=cache[id]; return !!v && typeof v.then!=='function'; },
                 nudge: nudgeAvailability
             };
 
