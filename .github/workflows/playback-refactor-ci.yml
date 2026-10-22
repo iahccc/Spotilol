@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: playback-refactor-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   bridge-contract:
     runs-on: ubuntu-latest
