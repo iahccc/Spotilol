@@ -45,6 +45,8 @@ object MainLoop {
                     try { addAndAuto(); } catch(e){}
                     try { addAutoFeatures(); } catch(e){}
                     try { addCSSJSHack(); } catch(e){}
+                    // Notify Android media service even if Spotify has not mounted a native play button.
+                    try { AndBridge.playLoaded(); } catch(e){}
                     try { if(window.__splPerf) window.__splPerf('tracker-ready', 0); } catch(e){}
                 },0);
 
