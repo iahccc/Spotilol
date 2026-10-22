@@ -126,6 +126,7 @@ object WebViewHost {
     fun release() {
         val view = webView ?: return
         webView = null
+        bridge?.closeNetworkBridge()
         bridge = null
         try {
             (view.webViewClient as? SpotifyWebViewClient)?.dispose()
