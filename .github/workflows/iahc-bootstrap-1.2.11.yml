@@ -1,0 +1,25 @@
+name: Bootstrap iahc 1.2.11 release
+on:
+  push:
+    paths:
+      - ".github/workflows/iahc-bootstrap-1.2.11.yml"
+permissions:
+  contents: write
+  actions: write
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag and dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=iahc-1.2.11
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ "${existing}" == *"Not Found"* ]]; then existing=""; fi
+          if [[ -n "${existing}" && "${existing}" != "${GITHUB_SHA}" ]]; then exit 1; fi
+          if [[ -z "${existing}" ]]; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/tags/${tag}" -f "sha=${GITHUB_SHA}"
+          fi
+          gh workflow run release.yml --repo "${GITHUB_REPOSITORY}" --ref main -f "release_tag=${tag}"
