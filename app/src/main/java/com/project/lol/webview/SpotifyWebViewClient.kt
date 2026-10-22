@@ -463,6 +463,7 @@ class SpotifyWebViewClient(
                 append(DevLogPrelude.js())
                 append("\n")
             }
+            append(PlaybackPerf.CONTENT)
             append(PlayerCore.CONTENT)
             append(TrackObserver.CONTENT)
             append(ClassicBridge.CONTENT)
