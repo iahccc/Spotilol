@@ -107,7 +107,8 @@ object MediaUpdater {
                         // expose native bar text nodes through a TreeWalker.
                         if(!name && typeof bar.innerText==='string'){
                             var pieces=bar.innerText.split(/\n+/).map(function(s){return s.trim();}).filter(function(s){
-                                return s && s.length<=100 && !/^\d{1,3}:\d{2}(?::\d{2})?$/.test(s);
+                                return s && s.length<=100 && !/^\d{1,3}:\d{2}(?::\d{2})?$/.test(s) &&
+                                    !/^(?:调整播放进度|调整音量|播放进度|音量|播放|暂停|下一首|上一首|播放队列|播放列表)$/i.test(s);
                             });
                             if(pieces.length>1){
                                 name=pieces[0];
