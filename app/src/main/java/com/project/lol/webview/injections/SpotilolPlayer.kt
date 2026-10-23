@@ -961,8 +961,24 @@ object SpotilolPlayer {
 
                     var rafLastTime=0;
                     function rafUpdate(timestamp){
-                        if(!window.__splBusy&&!window.__splBg&&timestamp-rafLastTime>200){ splUpdate(); rafLastTime=timestamp; }
+                        // Schedule the next frame BEFORE work: a DOM exception must not
+                        // permanently freeze the custom player at "No track".
+                        if(!pl.isConnected) return;
                         requestAnimationFrame(rafUpdate);
+                        if(window.__splBusy||window.__splBg||timestamp-rafLastTime<=200) return;
+                        rafLastTime=timestamp;
+                        try{
+                            window.splUpdate();
+                        }catch(e){
+                            window.__splPlayerRefreshFailureCount=(window.__splPlayerRefreshFailureCount||0)+1;
+                            var msg=String(e&&e.message||e).slice(0,140);
+                            window.__splPlayerLastError=msg;
+                            var now=Date.now();
+                            if(now-(window.__splPlayerLastErrorLogAt||0)>10000){
+                                window.__splPlayerLastErrorLogAt=now;
+                                try{ AndBridge.dbg('e','player refresh failed: '+msg); }catch(_){}
+                            }
+                        }
                     }
                     var splWasOpen=false;
                     try{ splWasOpen=localStorage.getItem('splFullOpen')==='1'; }catch(e){}
