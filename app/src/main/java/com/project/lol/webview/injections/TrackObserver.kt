@@ -41,7 +41,7 @@ object TrackObserver {
 
             function currentId() {
                 if (!root) return null;
-                if (!anchor || !anchor.isConnected) anchor = root.querySelector(LINK);
+                if (!anchor || !anchor.isConnected || !root.contains(anchor)) anchor = root.querySelector(LINK);
                 if (!anchor) return null;
                 const href = anchor.getAttribute('href');
                 if (!href) return null;
@@ -145,6 +145,7 @@ object TrackObserver {
                 const el = document.querySelector(SEL);
                 if (el && el !== root) attach(el);
                 else if (!el && root) detach();
+                else if (el) check(); // Recover from missed SPA updates without retaining an old link.
             }, 2000);
 
             window.__npStop = stop;
