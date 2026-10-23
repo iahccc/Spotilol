@@ -58,6 +58,6 @@ test('diagnostic payload does not collect auth headers, cookies or URLs',()=>{
 test('copy control is rendered only when custom player has a missing title',()=>{
   const player=fs.readFileSync(path.join(dir,'SpotilolPlayer.kt'),'utf8');
   assert.ok(player.includes("diagButton.textContent='复制诊断'"));
-  assert.ok(player.includes("!t.textContent||t.textContent==='No track'"));
+  assert.ok(player.includes("t.textContent==='No track'"));
   assert.ok(player.includes('window.splCopyPlaybackDiagnostics()'));
 });
