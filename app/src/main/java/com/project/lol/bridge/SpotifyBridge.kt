@@ -139,6 +139,26 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
     }
 
     @JavascriptInterface
+    fun copyPlaybackDiagnostics(report: String?) {
+        if (report.isNullOrBlank() || report.length > 8192) return
+        val safe = try {
+            val obj = JSONObject(report)
+            if (obj.optString("type") != "spl-player-v1") return
+            // Only the bounded diagnostic schema is accepted. Never collect request data.
+            obj.toString()
+        } catch (_: Exception) { return }
+        val activity = activityRef.get() ?: return
+        activity.runOnUiThread {
+            val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as? android.content.ClipboardManager ?: return@runOnUiThread
+            clipboard.setPrimaryClip(
+                android.content.ClipData.newPlainText("Spotilol player diagnostic", safe)
+            )
+            Toast.makeText(activity, "已复制播放器诊断信息，请粘贴到聊天中", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @JavascriptInterface
     fun clearDebugLog() {
         Logger.clear()
         Logger.d(CALL, "logger buffer cleared from js")

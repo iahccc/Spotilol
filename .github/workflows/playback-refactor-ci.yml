@@ -5,12 +5,13 @@ on:
       - "fix/async-bridge-player-*"
       - "fix/player-visible-*"
       - "fix/no-track-metadata-*"
+      - "diagnostics/no-track-real-device-*"
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: playback-refactor-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/diagnostics/no-track-real-device-') }}
 jobs:
   bridge-contract:
     runs-on: ubuntu-latest
@@ -65,7 +66,7 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@v7
         with:
-          name: Spotilol-1.2.14-metadata-preview
+          name: Spotilol-1.2.15-no-track-diagnostics
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
