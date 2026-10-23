@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: "24"
       - name: Verify bridge contract
-        run: node --test tests/bridge-contract.test.cjs
+        run: node --test tests/*.test.cjs
 
   signed-android-build:
     runs-on: ubuntu-latest
