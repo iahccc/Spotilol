@@ -58,30 +58,122 @@ object MediaUpdater {
                 try{
                     var bar=document.querySelector('aside[data-testid="now-playing-bar"], [data-testid="now-playing-bar"]');
                     var title=bar&&bar.querySelector(
-                        'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]');
-                    if(!title){
-                        // Legacy Spotify layout placed this link outside now-playing-widget.
-                        // Only use the document-level fallback if unambiguous.
-                        var candidates=document.querySelectorAll('a[data-testid="context-item-link"]');
-                        if(candidates.length===1) title=candidates[0];
+                        'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"], a[href*="/track/"]');
+                    if(!title && !bar){
+                        // Older Spotify layouts placed the link outside the native bar.
+                        var matches=document.querySelectorAll('a[data-testid="context-item-link"]');
+                        if(matches.length===1) title=matches[0];
                     }
-                    if(!title) return null;
-                    var name=(title.textContent||'').trim();
-                    if(!name || name==='No track') return null;
+                    if(!title && !bar) return null;
                     var container=bar||(title.closest&&title.closest(
                         '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"], footer, aside'));
-                    var get=function(sel){
-                        return (container&&container.querySelector(sel)) ||
-                            (!bar&&document.querySelectorAll(sel).length===1?document.querySelector(sel):null);
-                    };
-                    var artistNode=get('a[data-testid="context-item-info-artist"], a[data-testid="context-item-info-show"]');
-                    var coverNode=get('img[data-testid="cover-art-image"]');
-                    var href=title.getAttribute&&title.getAttribute('href')||'';
+                    var name=(title&&title.textContent||'').trim();
+                    var artistNode=container&&container.querySelector(
+                        'a[data-testid="context-item-info-artist"], a[href*="/artist/"], a[data-testid="context-item-info-show"]');
+                    var artistName=(artistNode&&artistNode.textContent||'').trim();
+
+                    if(bar && (!name || !artistName)){
+                        // Spotify's new native bar may use anonymous div/span text,
+                        // with no song link, now-playing-widget or stable data-testid.
+                        var labels=[];
+                        if(typeof document.createTreeWalker==='function'){
+                            var walker=document.createTreeWalker(bar,4),node,steps=0;
+                            while((node=walker.nextNode()) && ++steps<=180 && labels.length<6){
+                                var parent=node.parentElement,skip=false;
+                                for(var e=parent;e&&e!==bar;e=e.parentElement){
+                                    var tag=(e.tagName||'').toLowerCase();
+                                    if(tag==='button'||tag==='input'||tag==='svg'||tag==='script'||
+                                       tag==='style'||tag==='select'||tag==='textarea'||
+                                       e.getAttribute&&(
+                                           e.getAttribute('role')==='slider' ||
+                                           e.getAttribute('role')==='progressbar' ||
+                                           /progress|volume|seek/i.test(e.getAttribute('data-testid')||''))){
+                                        skip=true;break;
+                                    }
+                                }
+                                if(skip) continue;
+                                var label=(node.nodeValue||'').trim();
+                                if(!label || label.length>100 ||
+                                   /^\d{1,3}:\d{2}(?::\d{2})?$/.test(label) ||
+                                   /^(?:调整播放进度|调整音量|播放进度|音量|播放|暂停|下一首|上一首|播放队列|播放列表)$/i.test(label)) continue;
+                                labels.push(label);
+                            }
+                        }
+                        if(!name && labels.length) name=labels[0];
+                        if(!artistName && labels.length>1){
+                            artistName=labels[labels[0]===name?1:0]||'';
+                        }
+                        // innerText has line separators even when a browser cannot
+                        // expose native bar text nodes through a TreeWalker.
+                        if(!name && typeof bar.innerText==='string'){
+                            var pieces=bar.innerText.split(/\n+/).map(function(s){return s.trim();}).filter(function(s){
+                                return s && s.length<=100 && !/^\d{1,3}:\d{2}(?::\d{2})?$/.test(s) &&
+                                    !/^(?:调整播放进度|调整音量|播放进度|音量|播放|暂停|下一首|上一首|播放队列|播放列表)$/i.test(s);
+                            });
+                            if(pieces.length>1){
+                                name=pieces[0];
+                                if(!artistName) artistName=pieces[1];
+                            }
+                        }
+                    }
+
+                    var href=title&&title.getAttribute&&title.getAttribute('href')||'';
                     var match=href.match(/\/track\/([A-Za-z0-9]{22})/);
-                    return {id:match?match[1]:null,name:name,
-                        artist:(artistNode&&artistNode.textContent||'').trim(),
-                        album:'',cover:(coverNode&&coverNode.src)||'',source:'native'};
-                }catch(e){return null;}
+                    var id=match?match[1]:null;
+                    var coverNode=container&&container.querySelector(
+                        'img[data-testid="cover-art-image"], img[src]');
+                    var artwork=coverNode&&coverNode.src||'';
+
+                    if(bar){
+                        // The real device reports "山川李榮浩0:01..." as one
+                        // textContent value. Match name AND artist contiguously
+                        // against cached metadata rather than treating that whole
+                        // string (including controls) as a song title.
+                        var visible=(bar.textContent||'').replace(/\s+/g,'');
+                        var cache=window.__splTrackMeta||{},keys=Object.keys(cache);
+                        var best=null,bestScore=0;
+                        for(var i=0;i<keys.length&&i<500;i++){
+                            var meta=cache[keys[i]]||{};
+                            var tn=String(meta.name||'').replace(/\s+/g,'');
+                            var an=String(meta.artist||'').replace(/\s+/g,'');
+                            if(!tn||!an) continue;
+                            var index=visible.indexOf(tn);
+                            // Do not match a cached title embedded inside a different
+                            // visible title. The current native bar starts with the song.
+                            if(index!==0) continue;
+                            var tail=visible.slice(index+tn.length,index+tn.length+an.length+10);
+                            var artistPos=tail.indexOf(an);
+                            if(artistPos<0 || artistPos>10) continue;
+                            var score=tn.length+an.length-artistPos;
+                            if(score>bestScore){
+                                bestScore=score;
+                                best={id:keys[i],name:meta.name,artist:meta.artist,
+                                    album:meta.album||'',cover:meta.cover||''};
+                            }
+                        }
+                        if(best && (!id || id===best.id)){
+                            // Use cached song ID only when BOTH title and artist
+                            // are confirmed against the currently visible native bar.
+                            // With no link, the DOM may contain one fused text node
+                            // ("titleartist0:01..."); prefer the verified pair.
+                            if(!id) id=best.id;
+                            if(!title){
+                                name=best.name;
+                                artistName=best.artist;
+                            }else{
+                                if(!name) name=best.name;
+                                if(!artistName) artistName=best.artist;
+                            }
+                            if(!artwork) artwork=best.cover;
+                        }
+                    }
+                    if(!name || name==='No track') return null;
+                    return {id:id,name:name,artist:artistName,album:'',cover:artwork,
+                        source:title?'native-link':(bar?'native-bar-text':'native')};
+                }catch(e){
+                    window.__splNativeMetaError=String(e&&e.message||e).slice(0,120);
+                    return null;
+                }
             };
 
             window.splSessionNowPlayingMeta = function(){
