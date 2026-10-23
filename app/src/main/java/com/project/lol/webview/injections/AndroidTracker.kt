@@ -8,16 +8,26 @@ object AndroidTracker {
                     else { clearInterval(aaint); }
                 }
                 function readTrackState(){
-                    var id = typeof window.splPlayingTrackId==='function' ? window.splPlayingTrackId() : window.splTrackId;
-                    var meta = id && window.__splTrackMeta ? window.__splTrackMeta[id] : null;
-                    var widget = id && typeof window.splWidgetMeta==='function' ? window.splWidgetMeta(id) : null;
-                    var ta = document.querySelector('a[data-testid=context-item-link], [data-testid=now-playing-widget] a[href*="/track/"]');
-                    track = ((ta && ta.textContent || '').trim() || (widget && widget.name) ||
-                        (meta && meta.name) || (id && id===window.__curTrackId && window.__curTrackName) || '') || null;
-                    var aa = document.querySelector('a[data-testid=context-item-info-artist]');
-                    if(!aa) aa = document.querySelector('a[data-testid=context-item-info-show]');
-                    artist = ((aa && aa.textContent || '').trim() || (widget && widget.artist) ||
-                        (meta && meta.artist) || (id && id===window.__curTrackId && window.__curTrackArtist) || '');
+                    var snapshot=typeof window.splCurrentTrackSnapshot==='function'
+                        ?window.splCurrentTrackSnapshot():null;
+                    var widget=document.querySelector('[data-testid="now-playing-widget"]');
+                    var episode=widget&&widget.querySelector('a[data-testid="context-item-info-show"]');
+                    // A missing track link during a React update does not mean the old song
+                    // is still playing. Wait for a coherent snapshot instead of mixing fields.
+                    if(!snapshot&&!episode) return;
+                    if(snapshot){
+                        window.__splTrackedId=snapshot.id;
+                        track=snapshot.name || null;
+                        artist=snapshot.artist || '';
+                        cover=snapshot.cover || null;
+                    }else{
+                        window.__splTrackedId='episode';
+                        var ta=widget.querySelector('a[data-testid="context-item-info-title"], a[data-testid="context-item-link"]');
+                        track=ta?(ta.textContent||'').trim():null;
+                        artist=(episode.textContent||'').trim();
+                        var image=widget.querySelector('img[data-testid="cover-art-image"]');
+                        cover=image&&image.src||null;
+                    }
                     var rr = document.querySelector('button[data-testid=control-button-repeat]');
                     if(rr) repmode=rr.getAttribute('aria-checked'); else repmode='false';
                     shuffle = (typeof window.splShuffleState === 'function') ? window.splShuffleState() : 'off';
@@ -27,15 +37,6 @@ object AndroidTracker {
                     var rg = document.querySelector('div[data-testid=playback-progressbar] input[type=range]');
                     if(rg) { duration=parseInt(rg.getAttribute('max')); position=parseInt(rg.getAttribute('value')); }
                     else { duration=null; position=null; }
-                    var im = document.querySelector('img[data-testid=cover-art-image]');
-                    if(im) {
-                        var s=im.src;
-                        if(s.indexOf('i.scdn.co')!==-1) {
-                            s=s.replace(/ab67616d0000[0-9a-f]{4}/,'ab67616d000082c1');
-                            s=s.replace(/ab6761670000[0-9a-f]{4}/,'ab676167000082e8');
-                        }
-                        cover=s;
-                    } else cover=null;
                     updMedia();
                 }
                 try {

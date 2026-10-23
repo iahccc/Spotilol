@@ -621,32 +621,39 @@ object SpotilolPlayer {
                         var av=document.getElementById('spl-avtoggle');
 
                         var npb=window.splQ('[data-testid="now-playing-widget"]');
-                        var currentId=typeof window.splPlayingTrackId==='function'?window.splPlayingTrackId():window.splTrackId;
-                        var meta=currentId&&window.__splTrackMeta?window.__splTrackMeta[currentId]:null;
+                        var snapshot=typeof window.splCurrentTrackSnapshot==='function'
+                            ?window.splCurrentTrackSnapshot():null;
                         var imgEl=npb?npb.querySelector('img[data-testid="cover-art-image"]'):null;
-                        var nextCover=(imgEl&&imgEl.src)||(meta&&meta.cover)||window.cover||'';
-                        if(ci&&nextCover&&ci.getAttribute('data-src')!==nextCover){
-                            ci.setAttribute('data-src',nextCover);
-                            if(window.__splFullPlayer&&imgEl){
-                                ci.onerror=function(){ ci.onerror=null; if(ci.getAttribute('data-src')===nextCover) ci.src=nextCover; };
-                                ci.src=splHiRes(imgEl);
-                                splTint(nextCover);
-                            } else {
-                                ci.src=nextCover;
+                        var episode=npb&&npb.querySelector('a[data-testid="context-item-info-show"]');
+                        var newId=snapshot?snapshot.id:(episode?'episode':null);
+                        if(newId && pl.__splDisplayedTrackId!==newId){
+                            // Clear previous song immediately; never keep its title or cover during a switch.
+                            pl.__splDisplayedTrackId=newId;
+                            if(tk) tk.textContent='No track';
+                            if(ar) ar.textContent='\u2014';
+                            if(ci){
+                                ci.removeAttribute('src');
+                                ci.removeAttribute('data-src');
                             }
                         }
-
-                        var trackEl=window.splQ('a[data-testid=context-item-link]') ||
-                            (npb&&npb.querySelector('a[href*="/track/"]'));
-                        var nextTrack=(trackEl&&trackEl.textContent||'').trim() ||
-                            (typeof track==='string'?track:'') || (meta&&meta.name)||'';
-                        if(tk&&nextTrack&&tk.textContent!==nextTrack) tk.textContent=nextTrack;
-
-                        var artistEl=window.splQ('a[data-testid=context-item-info-artist]');
-                        if(!artistEl) artistEl=window.splQ('a[data-testid=context-item-info-show]');
-                        var nextArtist=(artistEl&&artistEl.textContent||'').trim() ||
-                            (typeof artist==='string'?artist:'') || (meta&&meta.artist)||'';
-                        if(ar&&nextArtist&&tk.textContent!=='No track'&&ar.textContent!==nextArtist) ar.textContent=nextArtist;
+                        if(snapshot || episode){
+                            var nextTrack=snapshot?snapshot.name:
+                                ((npb.querySelector('a[data-testid="context-item-info-title"], a[data-testid="context-item-link"]')||{}).textContent||'').trim();
+                            var nextArtist=snapshot?snapshot.artist:(episode.textContent||'').trim();
+                            var nextCover=snapshot?snapshot.cover:(imgEl&&imgEl.src)||'';
+                            if(tk&&nextTrack&&tk.textContent!==nextTrack) tk.textContent=nextTrack;
+                            if(ar&&nextArtist&&ar.textContent!==nextArtist) ar.textContent=nextArtist;
+                            if(ci&&nextCover&&ci.getAttribute('data-src')!==nextCover){
+                                ci.setAttribute('data-src',nextCover);
+                                if(window.__splFullPlayer && imgEl && snapshot){
+                                    ci.onerror=function(){ci.onerror=null;if(ci.getAttribute('data-src')===nextCover) ci.src=nextCover;};
+                                    ci.src=splHiRes(imgEl);
+                                    splTint(nextCover);
+                                }else{
+                                    ci.src=nextCover;
+                                }
+                            }
+                        }
 
                         var rg=window.splQ('[data-testid="playback-progressbar"] input[type=range]');
                         if(pp||ppm){

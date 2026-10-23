@@ -175,17 +175,24 @@ class SpotifyBridge(activityRef: WeakReference<Activity>) {
 
     @JavascriptInterface
     fun recMediaPosition(position: Long) {
-        Logger.v(CALL, "position=$position")
-        onMediaPosition?.invoke(position)
-        MediaNotificationService.instance?.updatePlaybackPosition(position)
+        val generation = NavToken.current()
+        mainHandler.post {
+            if (generation != NavToken.current()) return@post
+            Logger.v(CALL, "position=$position")
+            onMediaPosition?.invoke(position)
+            MediaNotificationService.instance?.updatePlaybackPosition(position)
+        }
     }
 
     @JavascriptInterface
     fun recMediaStatus(json: String?) {
-        json?.let {
-            Logger.d(CALL, "media status (${it.length} chars): ${it.take(180)}")
-            onMediaStatus?.invoke(it)
-            MediaNotificationService.instance?.updateFromMediaStatus(it)
+        if (json.isNullOrBlank()) return
+        val generation = NavToken.current()
+        mainHandler.post {
+            if (generation != NavToken.current()) return@post
+            Logger.d(CALL, "media status (${json.length} chars)")
+            onMediaStatus?.invoke(json)
+            MediaNotificationService.instance?.updateFromMediaStatus(json)
         }
     }
 
