@@ -157,7 +157,8 @@ object SpotilolPlayer {
                             Date.now()-window.__splPlayRequestedAt<20000);
                         var empty=!!window.__splHideEmpty && !pl.__splHadPlayback && !pendingPlay;
                         pl.classList.toggle('spl-empty',empty);
-                        if(diagButton) diagButton.style.display=
+                        var copyDiag=document.getElementById('spl-copy-diagnostic');
+                        if(copyDiag) copyDiag.style.display=
                             pl.__splReady && !empty && (!t || !t.textContent || t.textContent==='No track') ? '' : 'none';
                         // Never make both Spotify's native bar and our custom player invisible.
                         if(npb && pl.__splReady) npb.style.display=empty?'':'none';
