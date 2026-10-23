@@ -41,7 +41,9 @@ object TrackObserver {
 
             function currentId() {
                 if (!root) return null;
-                if (!anchor || !anchor.isConnected || !root.contains(anchor)) anchor = root.querySelector(LINK);
+                // Query the current widget every time: Spotify can leave the old
+                // anchor connected while inserting a new first track link.
+                anchor = root.querySelector(LINK);
                 if (!anchor) return null;
                 const href = anchor.getAttribute('href');
                 if (!href) return null;
