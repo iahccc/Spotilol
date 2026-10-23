@@ -135,6 +135,17 @@ test('metadata cached for a different artist must not override the current nativ
   assert.equal(s.id,null);
 });
 
+test('a cached substring of the visible title cannot claim a different song ID',()=>{
+  const f=fixture({
+    tokens:['山川','李榮浩','0:01'],
+    cached:{[A]:{name:'川',artist:'李榮浩'}}
+  });
+  const s=f.window.splCurrentTrackSnapshot();
+  assert.equal(s.name,'山川');
+  assert.equal(s.artist,'李榮浩');
+  assert.equal(s.id,null);
+});
+
 test('old native title links still work after adding the anonymous-text fallback',()=>{
   const a={
     textContent:'Legacy song',
