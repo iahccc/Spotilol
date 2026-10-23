@@ -125,7 +125,10 @@ test('track observer discards connected links moved out of the active widget', (
     performance,CustomEvent:class CustomEvent {},setInterval:() => 1,clearInterval:()=>{}});
   vm.runInContext(injection('TrackObserver.kt'),ctx);
   assert.equal(window.splTrackId,ids.a);
+  // Spotify may retain the old DOM node in the widget during a transition.
+  // The currently selected link is the new first link even while old is connected.
   root.link=wB.link;
+  root.contains=() => true;
   observer.cb();
   assert.equal(window.splTrackId,ids.b);
 });
