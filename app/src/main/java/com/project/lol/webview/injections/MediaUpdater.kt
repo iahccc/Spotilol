@@ -9,13 +9,18 @@ object MediaUpdater {
 
             window.splPlayingTrackId = function(){
                 try{
-                    var a = document.querySelector('[data-testid="now-playing-widget"] a[href*="/track/"]');
-                    if(a){
-                        var m = (a.getAttribute('href')||'').match(/\/track\/([a-zA-Z0-9]{22})/);
-                        if(m) return m[1];
+                    var w=document.querySelector('[data-testid="now-playing-widget"]');
+                    if(w){
+                        var a=w.querySelector('a[href*="/track/"]');
+                        if(a){
+                            var m=(a.getAttribute('href')||'').match(/\/track\/([a-zA-Z0-9]{22})/);
+                            if(m) return m[1];
+                        }
+                        // The widget is being replaced or currently shows a podcast.
+                        // Never reuse the previous track id in this transition.
+                        return null;
                     }
-                    if(document.querySelector('a[data-testid="context-item-info-show"]')) return null;
-                    return window.splTrackId || window.__curTrackId || null;
+                    return window.splTrackId || null;
                 }catch(e){ return null; }
             };
 
@@ -44,6 +49,22 @@ object MediaUpdater {
                     if(im && im.src) out.cover = window.splUpCoverUrl(im.src);
                     return out;
                 }catch(e){ return null; }
+            };
+
+            // All consumers use metadata belonging to the same active track id.
+            window.splCurrentTrackSnapshot = function(){
+                var id=window.splPlayingTrackId();
+                if(!id) return null;
+                var w=window.splWidgetMeta(id) || {};
+                var m=(window.__splTrackMeta && window.__splTrackMeta[id]) || {};
+                var cur=id===window.__curTrackId;
+                return {
+                    id:id,
+                    name:w.name || m.name || (cur?window.__curTrackName:null) || '',
+                    artist:w.artist || m.artist || (cur?window.__curTrackArtist:null) || '',
+                    album:m.album || (cur?window.__curTrackAlbum:null) || '',
+                    cover:w.cover || m.cover || (cur?window.__curTrackCover:null) || ''
+                };
             };
 
             window.splRowMeta = function(id){
@@ -137,19 +158,27 @@ object MediaUpdater {
                 var id = (typeof window.splPlayingTrackId === 'function')
                     ? window.splPlayingTrackId()
                     : (window.splTrackId || window.__curTrackId || null);
-                var m = (id && window.__splTrackMeta && window.__splTrackMeta[id]) || {};
-                var album = m.album || ((id != null && window.__curTrackId === id) ? window.__curTrackAlbum : null) || '';
-
-                var restart = (typeof position === 'number' && typeof lastPos === 'number' && position < lastPos - 2000);
-                lastPos = position;
-                if(restart) lastState = null;
-
-                var currState=track+'|'+artist+'|'+playing+'|'+repmode+'|'+isfav+'|'+shuffle+'|'+album+'|'+duration+'|'+cover;
-                if(currState!==lastState) {
+                var snap=typeof window.splCurrentTrackSnapshot==='function' ? window.splCurrentTrackSnapshot() : null;
+                var widget=document.querySelector('[data-testid="now-playing-widget"]');
+                var isEpisode=!!(widget && widget.querySelector('a[data-testid="context-item-info-show"]'));
+                // Ignore transient DOM states instead of sending old fields with a new id.
+                if(!snap && !isEpisode) return;
+                var name=snap ? snap.name : (track || '');
+                var artistName=snap ? snap.artist : (artist || '');
+                var album=snap ? snap.album : '';
+                var artwork=snap ? snap.cover : (cover || '');
+                var mediaId=snap ? snap.id : 'episode';
+                var restart=(typeof position==='number' && typeof lastPos==='number' && position<lastPos-2000);
+                lastPos=position;
+                if(restart) lastState=null;
+                var currState=[mediaId,name,artistName,playing,repmode,isfav,shuffle,album,duration,artwork].join('|');
+                if(currState!==lastState){
                     lastState=currState;
-                    var values={artist:artist,track:track,album:album,playing:playing,repeat:repmode,fav:isfav,shuffle:shuffle,duration:duration,position:position,cover:cover};
+                    var values={id:mediaId,artist:artistName,track:name,album:album,
+                        playing:playing,repeat:repmode,fav:isfav,shuffle:shuffle,
+                        duration:duration,position:position,cover:artwork};
                     AndBridge.recMediaStatus(JSON.stringify(values));
-                } else {
+                }else{
                     AndBridge.recMediaPosition(position);
                 }
             };
