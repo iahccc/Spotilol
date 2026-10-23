@@ -40,7 +40,7 @@ object PlaybackDiagnostics {
                 var player=document.getElementById('spotilolPlayerControls');
                 return {
                     type:'spl-player-v1',
-                    appVersion:'1.2.15',
+                    appVersion:'1.2.16',
                     createdAt:new Date().toISOString(),
                     pageReady:document.readyState,
                     pageVisible:document.visibilityState,
@@ -59,6 +59,7 @@ object PlaybackDiagnostics {
                     lastRenderError:shorten(window.__splPlayerLastError),
                     renderErrorCount:Number(window.__splPlayerRefreshFailureCount)||0,
                     mediaSource:shorten(window.__splMediaSource),
+                    nativeMetaError:shorten(window.__splNativeMetaError),
                     hasObserverTrackId:!!window.splTrackId,
                     hasMetadataTrackId:!!window.__curTrackId,
                     cachedMetaCount:safe(function(){return Object.keys(window.__splTrackMeta||{}).length;}),
