@@ -124,6 +124,20 @@ object SpotilolPlayer {
 
                 document.body.appendChild(pl);
                 if(window.__splHideEmpty) pl.classList.add('spl-empty');
+                // Diagnostic build: appear only when current track metadata is missing.
+                // No playback/network behavior is changed by this button.
+                var diagButton=document.createElement('button');
+                diagButton.id='spl-copy-diagnostic';
+                diagButton.type='button';
+                diagButton.textContent='复制诊断';
+                diagButton.setAttribute('aria-label','复制播放器诊断信息');
+                diagButton.style.cssText='display:none;position:absolute;right:9px;top:1px;z-index:99;border:1px solid #666;border-radius:7px;background:#292929;color:#eee;font-size:11px;padding:3px 6px;cursor:pointer';
+                diagButton.addEventListener('click',function(e){
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try{if(window.splCopyPlaybackDiagnostics) window.splCopyPlaybackDiagnostics();}catch(_){}
+                });
+                pl.appendChild(diagButton);
                     
                     window.splApplyEmpty=function(){
                         var t=document.getElementById('spl-track');
@@ -143,6 +157,8 @@ object SpotilolPlayer {
                             Date.now()-window.__splPlayRequestedAt<20000);
                         var empty=!!window.__splHideEmpty && !pl.__splHadPlayback && !pendingPlay;
                         pl.classList.toggle('spl-empty',empty);
+                        if(diagButton) diagButton.style.display=
+                            pl.__splReady && !empty && (!t || !t.textContent || t.textContent==='No track') ? '' : 'none';
                         // Never make both Spotify's native bar and our custom player invisible.
                         if(npb && pl.__splReady) npb.style.display=empty?'':'none';
                     };
