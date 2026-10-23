@@ -122,7 +122,9 @@ object FetchOverride {
                                             var splPlayingId = (typeof window.splPlayingTrackId === 'function')
                                                 ? window.splPlayingTrackId()
                                                 : (window.splTrackId || null);
-                                            if(!splPlayingId || tid === splPlayingId) {
+                                            // Background metadata prefetch is not the currently playing song.
+                                            // Do not overwrite active globals while the widget has no track link.
+                                            if(splPlayingId && tid === splPlayingId) {
                                                 window.__curTrackUri = j.canonical_uri;
                                                 window.__curTrackId = tid;
                                                 window.__curTrackName = j.name || null;
