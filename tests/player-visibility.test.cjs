@@ -68,6 +68,16 @@ test('player stays visible during transient metadata gaps after first playback',
   assert.equal(h.hidden(),false);
 });
 
+test('a song-list play request keeps the player visible while metadata is loading', () => {
+  const h=visibilityHarness();
+  h.window.__splPlayRequestedAt=Date.now();
+  h.window.splApplyEmpty();
+  assert.equal(h.hidden(),false);
+  h.window.__splPlayRequestedAt=Date.now()-21000;
+  h.window.splApplyEmpty();
+  assert.equal(h.hidden(),true);
+});
+
 test('now-playing widget or progress bar unhides the player without a track title', () => {
   for(const opts of [{widgetMedia:true},{progress:true},{snapshot:{id:null,name:'Song B'}}]) {
     const h=visibilityHarness(opts);
@@ -122,4 +132,9 @@ test('track snapshot falls back to current widget metadata without inheriting a 
   assert.equal(snap.artist,'Fresh artist');
   assert.equal(snap.cover,'fresh-image');
   assert.notEqual(snap.name,window.__curTrackName);
+  // Podcasts are handled by their dedicated episode metadata path.
+  const oldQuery=widget.querySelector;
+  widget.querySelector=selector=>selector==='a[data-testid="context-item-info-show"]'
+    ?{textContent:'Podcast'}:oldQuery(selector);
+  assert.equal(window.splCurrentTrackSnapshot(),null);
 });
