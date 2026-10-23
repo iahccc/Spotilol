@@ -126,6 +126,19 @@ test('a widget with a track ID but no name can use metadata for the SAME track',
   assert.equal(s.name,'Matching native title');
   assert.equal(s.artist,'Native artist');
 });
+test('verified native link wins over stale Media Session title while a new track loads',()=>{
+  const f=makeFixture({
+    widget:widget(B,'',''),
+    native:native('Real new title','Real artist',B),
+    session:{title:'Previous Media Session title',artist:'Previous artist'},
+    oldId:A
+  });
+  const s=f.window.splCurrentTrackSnapshot();
+  assert.equal(s.id,B);
+  assert.equal(s.name,'Real new title');
+  assert.equal(s.artist,'Real artist');
+});
+
 test('old song cache alone cannot fill No track when the player has no active source',()=>{
   const f=makeFixture({oldId:A});
   assert.equal(f.window.splCurrentTrackSnapshot(),null);
