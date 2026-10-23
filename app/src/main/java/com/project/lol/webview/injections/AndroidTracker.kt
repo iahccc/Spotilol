@@ -22,7 +22,7 @@ object AndroidTracker {
                         cover=snapshot.cover || null;
                     }else{
                         window.__splTrackedId='episode';
-                        var ta=widget.querySelector('a[data-testid="context-item-info-title"]');
+                        var ta=widget.querySelector('a[data-testid="context-item-info-title"], a[data-testid="context-item-link"]');
                         track=ta?(ta.textContent||'').trim():null;
                         artist=(episode.textContent||'').trim();
                         var image=widget.querySelector('img[data-testid="cover-art-image"]');
