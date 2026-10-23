@@ -24,6 +24,7 @@ object PlaybackPerf {
                 if(!t||typeof t.closest!=='function') return;
                 if(t.closest('[data-testid="tracklist-row"],[data-testid="play-button"],[data-testid="play-button-container"]')){
                     lastClick=performance.now();
+                    window.__splPlayRequestedAt=Date.now();
                     window.__splPerf('play-click',0);
                 }
             },true);

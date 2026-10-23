@@ -54,12 +54,32 @@ object MediaUpdater {
             // All consumers use metadata belonging to the same active track id.
             window.splCurrentTrackSnapshot = function(){
                 var id=window.splPlayingTrackId();
-                if(!id) return null;
+                if(!id){
+                    // Spotify occasionally renders the current song title before its /track/
+                    // href. Read one widget only, never combine it with an old track cache.
+                    var widget=document.querySelector('[data-testid="now-playing-widget"]');
+                    if(!widget) return null;
+                    // Podcast episodes use their own metadata path and should not masquerade as tracks.
+                    if(widget.querySelector('a[data-testid="context-item-info-show"]')) return null;
+                    var titleEl=widget.querySelector(
+                        'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]'
+                    );
+                    var artistEl=widget.querySelector('a[data-testid="context-item-info-artist"]');
+                    var imageEl=widget.querySelector('img[data-testid="cover-art-image"]');
+                    var title=(titleEl&&titleEl.textContent||'').trim();
+                    var artistName=(artistEl&&artistEl.textContent||'').trim();
+                    if(!title) return null;
+                    return {
+                        id:null, key:'widget:'+title+'|'+artistName,
+                        name:title, artist:artistName, album:'',
+                        cover:(imageEl&&imageEl.src)||''
+                    };
+                }
                 var w=window.splWidgetMeta(id) || {};
                 var m=(window.__splTrackMeta && window.__splTrackMeta[id]) || {};
                 var cur=id===window.__curTrackId;
                 return {
-                    id:id,
+                    id:id, key:id,
                     name:w.name || m.name || (cur?window.__curTrackName:null) || '',
                     artist:w.artist || m.artist || (cur?window.__curTrackArtist:null) || '',
                     album:m.album || (cur?window.__curTrackAlbum:null) || '',
@@ -167,7 +187,7 @@ object MediaUpdater {
                 var artistName=snap ? snap.artist : (artist || '');
                 var album=snap ? snap.album : '';
                 var artwork=snap ? snap.cover : (cover || '');
-                var mediaId=snap ? snap.id : 'episode';
+                var mediaId=snap ? (snap.key || snap.id) : 'episode';
                 var restart=(typeof position==='number' && typeof lastPos==='number' && position<lastPos-2000);
                 lastPos=position;
                 if(restart) lastState=null;

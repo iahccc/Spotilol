@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - "fix/async-bridge-player-*"
+      - "fix/player-visible-*"
   workflow_dispatch:
 permissions:
   contents: read
@@ -63,7 +64,7 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@v7
         with:
-          name: Spotilol-1.2.11-playback-preview
+          name: Spotilol-1.2.13-player-visibility-preview
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
