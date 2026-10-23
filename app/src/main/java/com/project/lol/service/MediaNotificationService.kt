@@ -228,6 +228,7 @@ class MediaNotificationService : MediaBrowserServiceCompat() {
     private var currentAlbum = ""
     private var currentPosition: Long = 0L
     private var currentDuration: Long = 0L
+    @Volatile
     private var lastCoverUrl = ""
     private var lastActiveContextId: String? = null
     private var isRepeat = "false"
@@ -815,6 +816,8 @@ class MediaNotificationService : MediaBrowserServiceCompat() {
 
             if (coverUrl.isNotEmpty() && coverUrl != "null" && coverUrl != lastCoverUrl) {
                 lastCoverUrl = coverUrl
+                // Never display the previous track's artwork while a new cover downloads.
+                coverBitmap = null
                 loadCoverArt(coverUrl)
             } else if (coverUrl.isEmpty() || coverUrl == "null") {
                 lastCoverUrl = ""
@@ -955,10 +958,16 @@ class MediaNotificationService : MediaBrowserServiceCompat() {
                     val h = (raw.height * scale).toInt()
                     val scaled = Bitmap.createScaledBitmap(raw, w, h, true)
                     if (scaled != raw) raw.recycle()
-                    coverBitmap = scaled
-                    updateMetadata()
-                    showNotification()
-                    pushWidgetState(force = true)
+                    mainHandler.post {
+                        if (url != lastCoverUrl) {
+                            scaled.recycle() // A previous track finished downloading after a switch.
+                            return@post
+                        }
+                        coverBitmap = scaled
+                        updateMetadata()
+                        showNotification()
+                        pushWidgetState(force = true)
+                    }
                 }
             } catch (_: Exception) {}
         }.start()
