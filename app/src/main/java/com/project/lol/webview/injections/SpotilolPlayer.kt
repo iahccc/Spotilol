@@ -638,7 +638,7 @@ object SpotilolPlayer {
                         }
                         if(snapshot || episode){
                             var nextTrack=snapshot?snapshot.name:
-                                ((npb.querySelector('a[data-testid="context-item-info-title"]')||{}).textContent||'').trim();
+                                ((npb.querySelector('a[data-testid="context-item-info-title"], a[data-testid="context-item-link"]')||{}).textContent||'').trim();
                             var nextArtist=snapshot?snapshot.artist:(episode.textContent||'').trim();
                             var nextCover=snapshot?snapshot.cover:(imgEl&&imgEl.src)||'';
                             if(tk&&nextTrack&&tk.textContent!==nextTrack) tk.textContent=nextTrack;
