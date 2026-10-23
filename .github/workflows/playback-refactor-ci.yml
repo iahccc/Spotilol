@@ -11,7 +11,7 @@ permissions:
   contents: read
 concurrency:
   group: playback-refactor-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/diagnostics/no-track-real-device-') }}
 jobs:
   bridge-contract:
     runs-on: ubuntu-latest
