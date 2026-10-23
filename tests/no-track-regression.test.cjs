@@ -142,3 +142,27 @@ test('native link for different song must not mix its artist with current widget
   assert.equal(s.name,'New song');
   assert.equal(s.artist,'');
 });
+
+test('a single player render exception never stops future metadata refreshes',()=>{
+  const player=fs.readFileSync(path.join(__dirname,'../app/src/main/java/com/project/lol/webview/injections/SpotilolPlayer.kt'),'utf8');
+  const start=player.indexOf('var rafLastTime=0;');
+  const end=player.indexOf('var splWasOpen=false;',start);
+  assert.ok(start>0&&end>start);
+  let frames=[],recovered=0;
+  const window={
+    __splBusy:false,__splBg:false,
+    splUpdate:()=>{throw new Error('Temporary Spotify DOM missing');}
+  };
+  const ctx=vm.createContext({
+    window,pl:{isConnected:true},Date,
+    requestAnimationFrame:fn=>frames.push(fn),
+    AndBridge:{dbg:()=>{}}
+  });
+  vm.runInContext(player.slice(start,end)+'\nrafUpdate(500);',ctx);
+  assert.equal(frames.length,1,'Next refresh must be scheduled despite render error');
+  assert.equal(window.__splPlayerRefreshFailureCount,1);
+  window.splUpdate=()=>{recovered++};
+  frames.shift()(800);
+  assert.equal(recovered,1,'Player must recover on the following frame');
+  assert.equal(frames.length,1);
+});
