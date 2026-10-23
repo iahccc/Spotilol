@@ -51,40 +51,110 @@ object MediaUpdater {
                 }catch(e){ return null; }
             };
 
-            // All consumers use metadata belonging to the same active track id.
+            // Spotify has multiple layouts. The now-playing widget may be absent even
+            // while music is playing; only trusting its /track/ link causes "No track".
+            // Each candidate carries its own title/artist/cover to avoid mixing songs.
+            window.splNativeNowPlayingMeta = function(){
+                try{
+                    var bar=document.querySelector('aside[data-testid="now-playing-bar"], [data-testid="now-playing-bar"]');
+                    var title=bar&&bar.querySelector(
+                        'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]');
+                    if(!title){
+                        // Legacy Spotify layout placed this link outside now-playing-widget.
+                        // Only use the document-level fallback if unambiguous.
+                        var candidates=document.querySelectorAll('a[data-testid="context-item-link"]');
+                        if(candidates.length===1) title=candidates[0];
+                    }
+                    if(!title) return null;
+                    var name=(title.textContent||'').trim();
+                    if(!name || name==='No track') return null;
+                    var container=bar||(title.closest&&title.closest(
+                        '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"], footer, aside'));
+                    var get=function(sel){
+                        return (container&&container.querySelector(sel)) ||
+                            (!bar&&document.querySelectorAll(sel).length===1?document.querySelector(sel):null);
+                    };
+                    var artistNode=get('a[data-testid="context-item-info-artist"], a[data-testid="context-item-info-show"]');
+                    var coverNode=get('img[data-testid="cover-art-image"]');
+                    var href=title.getAttribute&&title.getAttribute('href')||'';
+                    var match=href.match(/\/track\/([A-Za-z0-9]{22})/);
+                    return {id:match?match[1]:null,name:name,
+                        artist:(artistNode&&artistNode.textContent||'').trim(),
+                        album:'',cover:(coverNode&&coverNode.src)||'',source:'native'};
+                }catch(e){return null;}
+            };
+
+            window.splSessionNowPlayingMeta = function(){
+                try{
+                    var session=navigator.mediaSession;
+                    var metadata=session&&session.metadata;
+                    if(!metadata || !metadata.title) return null;
+                    var arts=metadata.artwork||[],cover='';
+                    for(var i=arts.length-1;i>=0;i--){
+                        if(arts[i]&&/^https?:\/\//i.test(arts[i].src||'')){
+                            cover=arts[i].src;break;
+                        }
+                    }
+                    return {id:null,name:String(metadata.title).trim(),
+                        artist:String(metadata.artist||'').trim(),
+                        album:String(metadata.album||'').trim(),
+                        cover:cover,source:'session'};
+                }catch(e){return null;}
+            };
+
+            window.splLooseWidgetMeta = function(){
+                try{
+                    var w=document.querySelector('[data-testid="now-playing-widget"]');
+                    if(!w || w.querySelector('a[data-testid="context-item-info-show"]')) return null;
+                    var a=w.querySelector('a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]');
+                    var name=(a&&a.textContent||'').trim();
+                    if(!name || name==='No track') return null;
+                    var ar=w.querySelector('a[data-testid="context-item-info-artist"]');
+                    var im=w.querySelector('img[data-testid="cover-art-image"]');
+                    return {id:null,name:name,artist:(ar&&ar.textContent||'').trim(),
+                        cover:(im&&im.src)||'',album:'',source:'widget'};
+                }catch(e){return null;}
+            };
+
             window.splCurrentTrackSnapshot = function(){
                 var id=window.splPlayingTrackId();
-                if(!id){
-                    // Spotify occasionally renders the current song title before its /track/
-                    // href. Read one widget only, never combine it with an old track cache.
-                    var widget=document.querySelector('[data-testid="now-playing-widget"]');
-                    if(!widget) return null;
-                    // Podcast episodes use their own metadata path and should not masquerade as tracks.
-                    if(widget.querySelector('a[data-testid="context-item-info-show"]')) return null;
-                    var titleEl=widget.querySelector(
-                        'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]'
-                    );
-                    var artistEl=widget.querySelector('a[data-testid="context-item-info-artist"]');
-                    var imageEl=widget.querySelector('img[data-testid="cover-art-image"]');
-                    var title=(titleEl&&titleEl.textContent||'').trim();
-                    var artistName=(artistEl&&artistEl.textContent||'').trim();
-                    if(!title) return null;
-                    return {
-                        id:null, key:'widget:'+title+'|'+artistName,
-                        name:title, artist:artistName, album:'',
-                        cover:(imageEl&&imageEl.src)||''
-                    };
+                var nativeMeta=window.splNativeNowPlayingMeta();
+                var sessionMeta=window.splSessionNowPlayingMeta();
+                var loose=window.splLooseWidgetMeta();
+                if(!id && nativeMeta&&nativeMeta.id) id=nativeMeta.id;
+                var widget=id?window.splWidgetMeta(id):null;
+                var cached=(id&&window.__splTrackMeta&&window.__splTrackMeta[id])||null;
+                var current=id&&id===window.__curTrackId ? {
+                    name:window.__curTrackName,artist:window.__curTrackArtist,
+                    album:window.__curTrackAlbum,cover:window.__curTrackCover
+                }:null;
+                // Do not trust a native link that explicitly identifies a DIFFERENT song.
+                if(id && nativeMeta && nativeMeta.id && nativeMeta.id!==id) nativeMeta=null;
+
+                // Prefer sources with a verified track ID. The Media Session supplies
+                // the current song when Spotify hides or reworks its DOM.
+                var main=(widget&&widget.name&&widget) ||
+                    (cached&&cached.name&&cached) ||
+                    (sessionMeta&&sessionMeta.name&&sessionMeta) ||
+                    (nativeMeta&&nativeMeta.name&&nativeMeta) ||
+                    (loose&&loose.name&&loose) ||
+                    (current&&current.name&&current);
+                if(!main || !main.name) return null;
+                var name=String(main.name).trim(),artistName=String(main.artist||'').trim();
+                var album=String(main.album||'').trim(),cover=String(main.cover||'').trim();
+                // Enrich only from this exact track or from a source with matching title.
+                var candidates=[widget,cached,current,nativeMeta,sessionMeta,loose];
+                for(var i=0;i<candidates.length;i++){
+                    var v=candidates[i];
+                    if(!v || !v.name || String(v.name).trim()!==name) continue;
+                    if(id && v.id && v.id!==id) continue;
+                    if(!artistName&&v.artist) artistName=String(v.artist).trim();
+                    if(!album&&v.album) album=String(v.album).trim();
+                    if(!cover&&v.cover) cover=String(v.cover).trim();
                 }
-                var w=window.splWidgetMeta(id) || {};
-                var m=(window.__splTrackMeta && window.__splTrackMeta[id]) || {};
-                var cur=id===window.__curTrackId;
-                return {
-                    id:id, key:id,
-                    name:w.name || m.name || (cur?window.__curTrackName:null) || '',
-                    artist:w.artist || m.artist || (cur?window.__curTrackArtist:null) || '',
-                    album:m.album || (cur?window.__curTrackAlbum:null) || '',
-                    cover:w.cover || m.cover || (cur?window.__curTrackCover:null) || ''
-                };
+                var key=id||'visible:'+name+'|'+artistName;
+                window.__splMediaSource=main.source||(main===cached?'cache':'id');
+                return {id:id||null,key:key,name:name,artist:artistName,album:album,cover:cover};
             };
 
             window.splRowMeta = function(id){
