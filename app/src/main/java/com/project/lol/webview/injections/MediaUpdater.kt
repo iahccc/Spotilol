@@ -138,7 +138,9 @@ object MediaUpdater {
                             var an=String(meta.artist||'').replace(/\s+/g,'');
                             if(!tn||!an) continue;
                             var index=visible.indexOf(tn);
-                            if(index<0 || index>40) continue;
+                            // Do not match a cached title embedded inside a different
+                            // visible title. The current native bar starts with the song.
+                            if(index!==0) continue;
                             var tail=visible.slice(index+tn.length,index+tn.length+an.length+10);
                             var artistPos=tail.indexOf(an);
                             if(artistPos<0 || artistPos>10) continue;
