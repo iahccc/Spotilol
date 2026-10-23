@@ -142,14 +142,24 @@ object MediaUpdater {
                     (nativeMeta&&nativeMeta.name&&nativeMeta) ||
                     (loose&&loose.name&&loose) ||
                     (current&&current.name&&current);
-                if(!main || !main.name) return null;
+                if(!main || !main.name){
+                    // A new verified track ID is already known, but its metadata is still
+                    // loading: clear the old song without inventing a title.
+                    if(!id) return null;
+                    window.__splMediaSource='pending-id';
+                    return {id:id,key:id,name:'',artist:'',album:'',cover:''};
+                }
                 var name=String(main.name).trim(),artistName=String(main.artist||'').trim();
                 var album=String(main.album||'').trim(),cover=String(main.cover||'').trim();
                 // Enrich only from this exact track or from a source with matching title.
                 var candidates=[widget,cached,current,nativeMeta,sessionMeta,loose];
                 for(var i=0;i<candidates.length;i++){
                     var v=candidates[i];
-                    if(!v || !v.name || String(v.name).trim()!==name) continue;
+                    if(!v) continue;
+                    // Metadata cached under the verified ID belongs to this track,
+                    // even if it contains an album but not yet a title.
+                    var sameTrack=(id && (v===cached || v===current || v===widget));
+                    if(!sameTrack && (!v.name || String(v.name).trim()!==name)) continue;
                     if(id && v.id && v.id!==id) continue;
                     if(!artistName&&v.artist) artistName=String(v.artist).trim();
                     if(!album&&v.album) album=String(v.album).trim();
