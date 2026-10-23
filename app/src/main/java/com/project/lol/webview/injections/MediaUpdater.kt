@@ -117,7 +117,10 @@ object MediaUpdater {
             };
 
             window.splCurrentTrackSnapshot = function(){
-                var id=window.splPlayingTrackId();
+                var activeWidget=document.querySelector('[data-testid="now-playing-widget"]');
+                // An observer may still remember the PREVIOUS ID after the widget was removed.
+                // Only accept its ID when the widget exists, or from a visible native link.
+                var id=activeWidget?window.splPlayingTrackId():null;
                 var nativeMeta=window.splNativeNowPlayingMeta();
                 var sessionMeta=window.splSessionNowPlayingMeta();
                 var loose=window.splLooseWidgetMeta();
