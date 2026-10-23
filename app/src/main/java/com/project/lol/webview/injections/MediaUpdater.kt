@@ -138,9 +138,12 @@ object MediaUpdater {
                 // the current song when Spotify hides or reworks its DOM.
                 var main=(widget&&widget.name&&widget) ||
                     (cached&&cached.name&&cached) ||
+                    // A native link identifying the verified track is more reliable
+                    // than a Media Session that may still describe the previous song.
+                    (nativeMeta&&nativeMeta.id===id&&nativeMeta.name&&nativeMeta) ||
+                    (loose&&loose.name&&loose) ||
                     (sessionMeta&&sessionMeta.name&&sessionMeta) ||
                     (nativeMeta&&nativeMeta.name&&nativeMeta) ||
-                    (loose&&loose.name&&loose) ||
                     (current&&current.name&&current);
                 if(!main || !main.name){
                     // A new verified track ID is already known, but its metadata is still
