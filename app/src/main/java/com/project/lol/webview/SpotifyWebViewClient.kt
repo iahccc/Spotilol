@@ -470,6 +470,7 @@ class SpotifyWebViewClient(
             append(TrackObserver.CONTENT)
             append(ClassicBridge.CONTENT)
             append(MediaUpdater.CONTENT)
+            append(PlaybackDiagnostics.CONTENT)
             append(LibraryFetcher.CONTENT)
             append(LibraryParser.CONTENT)
             append(PlaybackControls.CONTENT)
