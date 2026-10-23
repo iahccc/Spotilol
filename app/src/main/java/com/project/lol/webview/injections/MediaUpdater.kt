@@ -59,6 +59,8 @@ object MediaUpdater {
                     // href. Read one widget only, never combine it with an old track cache.
                     var widget=document.querySelector('[data-testid="now-playing-widget"]');
                     if(!widget) return null;
+                    // Podcast episodes use their own metadata path and should not masquerade as tracks.
+                    if(widget.querySelector('a[data-testid="context-item-info-show"]')) return null;
                     var titleEl=widget.querySelector(
                         'a[data-testid="context-item-link"], a[data-testid="context-item-info-title"], [data-testid="context-item-info-title"]'
                     );
