@@ -139,7 +139,9 @@ object SpotilolPlayer {
                             'a[href*="/track/"], a[data-testid="context-item-link"], img[data-testid="cover-art-image"], a[data-testid="context-item-info-show"]'));
                         var hasProgress=!!document.querySelector('[data-testid="playback-progressbar"] input[type="range"]');
                         if(hasTitle || snap || playingNow || hasWidgetMedia || hasProgress) pl.__splHadPlayback=true;
-                        var empty=!!window.__splHideEmpty && !pl.__splHadPlayback;
+                        var pendingPlay=!!(window.__splPlayRequestedAt &&
+                            Date.now()-window.__splPlayRequestedAt<20000);
+                        var empty=!!window.__splHideEmpty && !pl.__splHadPlayback && !pendingPlay;
                         pl.classList.toggle('spl-empty',empty);
                         // Never make both Spotify's native bar and our custom player invisible.
                         if(npb && pl.__splReady) npb.style.display=empty?'':'none';
