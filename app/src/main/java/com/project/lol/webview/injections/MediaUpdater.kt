@@ -148,13 +148,19 @@ object MediaUpdater {
                                     album:meta.album||'',cover:meta.cover||''};
                             }
                         }
-                        if(best && (!name || name===best.name ||
-                                    visible.indexOf(String(best.name).replace(/\s+/g,''))<=40)){
+                        if(best && (!id || id===best.id)){
                             // Use cached song ID only when BOTH title and artist
                             // are confirmed against the currently visible native bar.
+                            // With no link, the DOM may contain one fused text node
+                            // ("titleartist0:01..."); prefer the verified pair.
                             if(!id) id=best.id;
-                            if(!name || name.length>100) name=best.name;
-                            if(!artistName) artistName=best.artist;
+                            if(!title){
+                                name=best.name;
+                                artistName=best.artist;
+                            }else{
+                                if(!name) name=best.name;
+                                if(!artistName) artistName=best.artist;
+                            }
                             if(!artwork) artwork=best.cover;
                         }
                     }
