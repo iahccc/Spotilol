@@ -31,7 +31,9 @@ object SpotilolPlayer {
                     existing.remove();
                 }
                 var npb=document.querySelector('aside[data-testid="now-playing-bar"], [data-testid="now-playing-bar"]');
-                if(!npb) return;
+                // Some Spotify layouts omit the aside while keeping live playback controls.
+                // A missing native bar must not prevent our player from mounting.
+                if(!npb && !document.querySelector('[data-testid="now-playing-widget"], [data-testid="playback-progressbar"], button[data-testid="control-button-playpause"]')) return;
                 var start=performance.now();
                 var pl=null;
                 try {
@@ -125,9 +127,22 @@ object SpotilolPlayer {
                     
                     window.splApplyEmpty=function(){
                         var t=document.getElementById('spl-track');
-                        var empty=!t||!t.textContent||t.textContent==='No track';
-                        if(window.__splHideEmpty&&empty) pl.classList.add('spl-empty');
-                        else pl.classList.remove('spl-empty');
+                        var hasTitle=!!(t && t.textContent && t.textContent!=='No track');
+                        var snap=null;
+                        try{ if(typeof window.splCurrentTrackSnapshot==='function') snap=window.splCurrentTrackSnapshot(); }catch(e){}
+                        var playingNow=false;
+                        try{ if(typeof window.splIsPlaying==='function') playingNow=window.splIsPlaying()===true; }catch(e){}
+                        // A track can be audibly playing even before its link/title is in the
+                        // now-playing widget. Never tie player visibility to metadata readiness.
+                        var widget=document.querySelector('[data-testid="now-playing-widget"]');
+                        var hasWidgetMedia=!!(widget && widget.querySelector(
+                            'a[href*="/track/"], a[data-testid="context-item-link"], img[data-testid="cover-art-image"], a[data-testid="context-item-info-show"]'));
+                        var hasProgress=!!document.querySelector('[data-testid="playback-progressbar"] input[type="range"]');
+                        if(hasTitle || snap || playingNow || hasWidgetMedia || hasProgress) pl.__splHadPlayback=true;
+                        var empty=!!window.__splHideEmpty && !pl.__splHadPlayback;
+                        pl.classList.toggle('spl-empty',empty);
+                        // Never make both Spotify's native bar and our custom player invisible.
+                        if(npb && pl.__splReady) npb.style.display=empty?'':'none';
                     };
 
                     window.splApplyHideTopBar=function(){
@@ -625,7 +640,7 @@ object SpotilolPlayer {
                             ?window.splCurrentTrackSnapshot():null;
                         var imgEl=npb?npb.querySelector('img[data-testid="cover-art-image"]'):null;
                         var episode=npb&&npb.querySelector('a[data-testid="context-item-info-show"]');
-                        var newId=snapshot?snapshot.id:(episode?'episode':null);
+                        var newId=snapshot?(snapshot.key||snapshot.id):(episode?'episode':null);
                         if(newId && pl.__splDisplayedTrackId!==newId){
                             // Clear previous song immediately; never keep its title or cover during a switch.
                             pl.__splDisplayedTrackId=newId;
@@ -951,7 +966,8 @@ object SpotilolPlayer {
                     try{ splWasOpen=localStorage.getItem('splFullOpen')==='1'; }catch(e){}
                     splSetMini(window.__splFullPlayer?!splWasOpen:!!window.splMiniPref);
                     pl.__splReady=true;
-                    npb.style.display='none'; // Only hide native control after custom player initializes.
+                    // Re-check actual playback readiness before hiding Spotify's fallback.
+                    window.splApplyEmpty();
                     if(window.__splPerf) window.__splPerf('player-mounted',performance.now()-start);
                     requestAnimationFrame(rafUpdate);
                 } catch(e){
@@ -966,8 +982,10 @@ object SpotilolPlayer {
                 if(window.__splBg||window.__splBusy) return;
                 var npb=document.querySelector('aside[data-testid="now-playing-bar"], [data-testid="now-playing-bar"]');
                 var pl=document.getElementById('spotilolPlayerControls');
-                if(npb && (!pl || !pl.__splReady)) initSpotilolPlayer();
-                else if(npb && pl && pl.__splReady && npb.style.display!=='none') npb.style.display='none';
+                if(!pl || !pl.__splReady) initSpotilolPlayer();
+                else if(typeof window.splApplyEmpty==='function'){
+                    try{window.splApplyEmpty();}catch(e){}
+                }
             },3000);
             if(typeof window.splOnTrackChange==='function'){
                 window.splOnTrackChange(function(){
