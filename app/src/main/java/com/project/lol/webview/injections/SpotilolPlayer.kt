@@ -129,7 +129,7 @@ object SpotilolPlayer {
                 var diagButton=document.createElement('button');
                 diagButton.id='spl-copy-diagnostic';
                 diagButton.type='button';
-                diagButton.textContent='复制诊断';
+                diagButton.textContent='复制播放诊断';
                 diagButton.setAttribute('aria-label','复制播放器诊断信息');
                 diagButton.style.cssText='display:none;position:absolute;right:9px;top:1px;z-index:99;border:1px solid #666;border-radius:7px;background:#292929;color:#eee;font-size:11px;padding:3px 6px;cursor:pointer';
                 diagButton.addEventListener('click',function(e){
@@ -158,8 +158,9 @@ object SpotilolPlayer {
                         var empty=!!window.__splHideEmpty && !pl.__splHadPlayback && !pendingPlay;
                         pl.classList.toggle('spl-empty',empty);
                         var copyDiag=document.getElementById('spl-copy-diagnostic');
-                        if(copyDiag) copyDiag.style.display=
-                            pl.__splReady && !empty && (!t || !t.textContent || t.textContent==='No track') ? '' : 'none';
+                        // The preview build also needs diagnostics when a song title
+                        // updates correctly but its media stream is silent.
+                        if(copyDiag) copyDiag.style.display=pl.__splReady && !empty ? '' : 'none';
                         // Never make both Spotify's native bar and our custom player invisible.
                         if(npb && pl.__splReady) npb.style.display=empty?'':'none';
                     };
