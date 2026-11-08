@@ -342,10 +342,21 @@ class SpotifyWebViewClient(
             return WebResourceResponse("audio/mpeg", null, silent)
         }
 
-        // Only ad-audio candidates and Google auth URLs need the native sniff below.
-        // Everything else goes straight to the WebView, which would otherwise fetch
-        // it a second time after this blocking request returns null.
-        if (!isAdAudioUrl(url) && !isGoogleAuthUrl(url)) return null
+        // Regular music and ad streams may be served from the same CDN and share
+        // Content-Type: audio/mpeg. Never replace a stream just because it came
+        // from a generic /audio/ path or has an audio MIME type.
+        // Silence only explicit ad resources or exact IDs harvested from ad state.
+        val adMatch = matchAdCdn(url)
+        if (adMatch != null) {
+            Logger.d(TAG, "confirmed ad resource silenced (pattern=$adMatch)")
+            postToLiveView(view) { view.evaluateJavascript("AndBridge.deferMessage('adblock')", null) }
+            val silent = view.context.assets?.open("silent.mp3") ?: return null
+            return WebResourceResponse("audio/mpeg", null, silent)
+        }
+
+        // Keep the existing cookie sync for Google sign-in requests. Ordinary
+        // Spotify media is left untouched and loaded by the WebView itself.
+        if (!isGoogleAuthUrl(url)) return null
         try {
             val conn = URL(url).openConnection() as HttpURLConnection
             try {
@@ -353,54 +364,33 @@ class SpotifyWebViewClient(
                 conn.instanceFollowRedirects = true
                 conn.connectTimeout = 5000
                 conn.readTimeout = 5000
-                val isGoogle = isGoogleAuthUrl(url)
                 for ((k, v) in request.requestHeaders) {
                     val lk = k.lowercase(Locale.ROOT)
                     if (lk != "x-requested-with" && lk != "sec-gpc" && !lk.startsWith("sec-ch-ua") &&
-                        !(isGoogle && lk == "user-agent")
+                        lk != "user-agent"
                     ) {
                         conn.setRequestProperty(k, v)
                     }
                 }
-                if (isGoogle) {
-                    conn.setRequestProperty("User-Agent", DESKTOP_UA)
-                    val cookie = CookieManager.getInstance().getCookie(url)
-                    if (!cookie.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookie)
-                }
+                conn.setRequestProperty("User-Agent", DESKTOP_UA)
+                val cookie = CookieManager.getInstance().getCookie(url)
+                if (!cookie.isNullOrEmpty()) conn.setRequestProperty("Cookie", cookie)
                 conn.setRequestProperty("sec-gpc", "1")
                 conn.setRequestProperty("sec-ch-ua-platform", "\"Windows\"")
                 conn.setRequestProperty("sec-ch-ua-mobile", "?0")
                 conn.setRequestProperty("sec-ch-ua", "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"")
                 conn.connect()
-                if (isGoogle) {
-                    conn.headerFields.forEach { (key, values) ->
-                        if (key != null && key.equals("Set-Cookie", ignoreCase = true)) {
-                            values.forEach { CookieManager.getInstance().setCookie(url, it) }
-                        }
+                conn.headerFields.forEach { (key, values) ->
+                    if (key != null && key.equals("Set-Cookie", ignoreCase = true)) {
+                        values.forEach { CookieManager.getInstance().setCookie(url, it) }
                     }
-                    CookieManager.getInstance().flush()
                 }
-                val contentType = conn.contentType
-                if (contentType == "audio/mpeg" &&
-                    !url.contains("podz-content") && !url.contains("gew4-spclient") &&
-                    isAdAudioUrl(url)
-                ) {
-                    postToLiveView(view) { view.evaluateJavascript("AndBridge.deferMessage('adblock')", null) }
-                    val silent = view.context.assets?.open("silent.mp3") ?: return null
-                    return WebResourceResponse("audio/mpeg", null, silent)
-                }
+                CookieManager.getInstance().flush()
             } finally {
                 conn.disconnect()
             }
         } catch (_: Exception) {
             return null
-        }
-
-        val adMatch = matchAdCdn(url)
-        if (adMatch != null) {
-            postToLiveView(view) { view.evaluateJavascript("AndBridge.deferMessage('adblock')", null) }
-            val silent = view.context.assets?.open("silent.mp3") ?: return null
-            return WebResourceResponse("audio/mpeg", null, silent)
         }
         return null
     }
