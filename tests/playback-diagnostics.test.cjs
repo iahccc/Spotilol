@@ -55,9 +55,18 @@ test('diagnostic payload does not collect auth headers, cookies or URLs',()=>{
   assert.ok(!script.includes('window.location.href'));
   assert.ok(!script.includes('window.fetch('));
 });
-test('copy control is rendered only when custom player has a missing title',()=>{
+test('copy control remains available when playback is silent but song metadata is present',()=>{
   const player=fs.readFileSync(path.join(dir,'SpotilolPlayer.kt'),'utf8');
-  assert.ok(player.includes("diagButton.textContent='复制诊断'"));
-  assert.ok(player.includes("t.textContent==='No track'"));
+  assert.ok(player.includes("diagButton.textContent='复制播放诊断'"));
+  assert.ok(player.includes("pl.__splReady && !empty ? '' : 'none'"));
   assert.ok(player.includes('window.splCopyPlaybackDiagnostics()'));
+});
+
+test('diagnostic report includes media element playback and mute state, not source URLs',()=> {
+  const script=injection('PlaybackDiagnostics.kt');
+  assert.ok(script.includes('mediaPlayback:safe(function()'));
+  for(const marker of ['paused:el.paused','muted:el.muted','readyState:el.readyState','networkState:el.networkState','errorCode:el.error&&el.error.code||0']) {
+    assert.ok(script.includes(marker),marker);
+  }
+  assert.ok(!script.includes('currentSrc'));
 });
