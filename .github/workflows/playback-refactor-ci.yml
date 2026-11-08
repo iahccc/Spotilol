@@ -7,6 +7,7 @@ on:
       - "fix/no-track-metadata-*"
       - "diagnostics/no-track-real-device-*"
       - "fix/native-bar-live-meta-*"
+      - "fix/audio-silence-cdn-*"
   workflow_dispatch:
 permissions:
   contents: read
@@ -67,7 +68,7 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@v7
         with:
-          name: Spotilol-1.2.16-native-bar-metadata
+          name: Spotilol-1.2.17-audio-playback-preview
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7

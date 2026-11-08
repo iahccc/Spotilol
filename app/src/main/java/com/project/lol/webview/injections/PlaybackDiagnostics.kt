@@ -40,7 +40,7 @@ object PlaybackDiagnostics {
                 var player=document.getElementById('spotilolPlayerControls');
                 return {
                     type:'spl-player-v1',
-                    appVersion:'1.2.16',
+                    appVersion:'1.2.17',
                     createdAt:new Date().toISOString(),
                     pageReady:document.readyState,
                     pageVisible:document.visibilityState,
@@ -74,6 +74,15 @@ object PlaybackDiagnostics {
                     artistLink:query('a[data-testid="context-item-info-artist"]'),
                     anyTrackLink:query('[data-testid="now-playing-widget"] a[href*="/track/"]'),
                     progressBar:query('[data-testid="playback-progressbar"]'),
+                    mediaPlayback:safe(function(){
+                        var el=typeof window.splMediaEl==='function' && window.splMediaEl();
+                        if(!el) return null;
+                        return {tag:el.tagName,paused:el.paused,muted:el.muted,
+                            volume:Math.round(Number(el.volume||0)*100)/100,
+                            currentTime:Math.round(Number(el.currentTime||0)),
+                            readyState:el.readyState,networkState:el.networkState,
+                            errorCode:el.error&&el.error.code||0};
+                    }),
                     audioCount:safe(function(){return document.querySelectorAll('audio').length;}),
                     videoCount:safe(function(){return document.querySelectorAll('video').length;})
                 };
