@@ -202,6 +202,12 @@ class SpotifyWebViewClient(
     }
 
     private fun buildEarlyJs(prefs: android.content.SharedPreferences, isGoogle: Boolean): String {
+        if (AUDIO_BYPASS_DIAGNOSTIC) {
+            // Diagnostic build: no browser spoofing, fetch/WebSocket interception,
+            // ad hooks, service-worker patching, video parking or page rewriting.
+            // The late player UI and on-demand playback diagnostics stay enabled.
+            return "window.__splAudioBypassDiagnostic=true;"
+        }
         val powerSave = prefs.getBoolean("PowerSave", false)
         val blockSW = prefs.getBoolean("BlockServiceWorker", true)
         val hideEmptyPlayer = prefs.getBoolean("HideEmptyPlayer", false)
@@ -313,6 +319,9 @@ class SpotifyWebViewClient(
         view: WebView,
         request: WebResourceRequest
     ): WebResourceResponse? {
+        // Diagnostic build: let WebView handle every request unchanged, including
+        // all Spotify media, analytics and Google sign-in resources.
+        if (AUDIO_BYPASS_DIAGNOSTIC) return null
         val url = request.url.toString()
 
         if (isAnalyticsDomain(url)) {
@@ -564,7 +573,9 @@ class SpotifyWebViewClient(
                     wv.evaluateJavascript("window.__splTakeControl=$on;", null)
                 }
                 "BlockServiceWorker" -> {
-                    if (prefs.getBoolean("BlockServiceWorker", true)) {
+                    if (AUDIO_BYPASS_DIAGNOSTIC) {
+                        Logger.i(TAG, "audio bypass diagnostic: service-worker interception stays disabled")
+                    } else if (prefs.getBoolean("BlockServiceWorker", true)) {
                         wv.evaluateJavascript(WorkerNeutralize.CONTENT + ";\n" + SW_UNREGISTER_JS, null)
                     } else {
                         wv.reload()
@@ -646,6 +657,8 @@ class SpotifyWebViewClient(
     }
 
     companion object {
+        // Temporary 1.2.18 device test, never merge this flag enabled to main.
+        private const val AUDIO_BYPASS_DIAGNOSTIC = true
         private const val TAG = "wv"
         private const val WEB_PLAYER_ORIGIN = "https://open.spotify.com"
         private val LOGIN_PATH = Regex("^/(?:[a-zA-Z0-9]{2,8}(?:-[a-zA-Z0-9]{2,8})?/)?login/?$")
