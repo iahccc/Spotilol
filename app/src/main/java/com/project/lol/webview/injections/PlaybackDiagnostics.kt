@@ -90,7 +90,7 @@ object PlaybackDiagnostics {
                                 return {
                                     tag:el.tagName,
                                     spotilolCanvas:el.id==='spl-canvas',
-                                    hasSource:!!(el.currentSrc||el.src||el.srcObject),
+                                    hasSource:!!(el.src||el.srcObject||(el.querySelector&&el.querySelector('source[src]'))),
                                     paused:!!el.paused,muted:!!el.muted,
                                     volume:Math.round(Number(el.volume||0)*100)/100,
                                     readyState:el.readyState,networkState:el.networkState,
