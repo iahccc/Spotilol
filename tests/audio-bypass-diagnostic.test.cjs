@@ -39,6 +39,7 @@ test('diagnostics identify bypass and inspect media without exposing URLs', () =
   assert.match(diag, /audioBypassDiagnostic:!!window.__splAudioBypassDiagnostic/);
   assert.match(diag, /mediaElements:safe\(function\(\)/);
   assert.match(diag, /spotilolCanvas:el.id==='spl-canvas'/);
-  assert.match(diag, /hasSource:!!\(el.currentSrc\|\|el.src\|\|el.srcObject\)/);
-  assert.ok(!diag.includes('src:el.currentSrc'));
+  assert.ok(diag.includes('hasSource:!!(el.src||el.srcObject'));
+  assert.ok(!diag.includes('currentSrc'));
+  assert.ok(!diag.includes('src:el.src'));
 });
