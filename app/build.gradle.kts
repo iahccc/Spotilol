@@ -24,8 +24,8 @@ android {
         applicationId = "com.project.lol"
         minSdk = 28
         targetSdk = 36
-        versionCode = 36
-        versionName = "1.2.17"
+        versionCode = 37
+        versionName = "1.2.18-audio-bypass"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }

@@ -40,7 +40,8 @@ object PlaybackDiagnostics {
                 var player=document.getElementById('spotilolPlayerControls');
                 return {
                     type:'spl-player-v1',
-                    appVersion:'1.2.17',
+                    appVersion:'1.2.18-audio-bypass',
+                    audioBypassDiagnostic:!!window.__splAudioBypassDiagnostic,
                     createdAt:new Date().toISOString(),
                     pageReady:document.readyState,
                     pageVisible:document.visibilityState,
@@ -82,6 +83,20 @@ object PlaybackDiagnostics {
                             currentTime:Math.round(Number(el.currentTime||0)),
                             readyState:el.readyState,networkState:el.networkState,
                             errorCode:el.error&&el.error.code||0};
+                    }),
+                    mediaElements:safe(function(){
+                        return Array.prototype.slice.call(document.querySelectorAll('audio,video'),0,6)
+                            .map(function(el){
+                                return {
+                                    tag:el.tagName,
+                                    spotilolCanvas:el.id==='spl-canvas',
+                                    hasSource:!!(el.src||el.srcObject||(el.querySelector&&el.querySelector('source[src]'))),
+                                    paused:!!el.paused,muted:!!el.muted,
+                                    volume:Math.round(Number(el.volume||0)*100)/100,
+                                    readyState:el.readyState,networkState:el.networkState,
+                                    errorCode:el.error&&el.error.code||0
+                                };
+                            });
                     }),
                     audioCount:safe(function(){return document.querySelectorAll('audio').length;}),
                     videoCount:safe(function(){return document.querySelectorAll('video').length;})
